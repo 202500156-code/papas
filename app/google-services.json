@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "178373582969",
+    "project_id": "read-wood",
+    "storage_bucket": "read-wood.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:178373582969:android:1c32bd5a10c1f8b231f4a8",
+        "android_client_info": {
+          "package_name": "com.example.myapplication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBW22ITpdL4y5Vy92x_8L9HHNXcYdxjgmg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
