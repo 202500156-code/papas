@@ -1,5 +1,7 @@
 package com.example.myapplication
 
+import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -22,27 +25,18 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.ui.theme.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
 
-// ==========================================
-// 1. MÓDULO CRYPTO CON HASH ESTÁTICO
-// ==========================================
 object NativeCryptoHelper {
-
     fun generateSalt(): String {
         val random = SecureRandom()
         val salt = ByteArray(16)
         random.nextBytes(salt)
         return salt.joinToString("") { "%02x".format(it) }
-    }
-
-    fun hashWithSalt(text: String, salt: String): String {
-        if (text.isEmpty()) return ""
-        val combined = text + salt
-        val bytes = MessageDigest.getInstance("SHA-256").digest(combined.toByteArray())
-        val hashHex = bytes.joinToString("") { "%02x".format(it) }
-        return "$salt:$hashHex"
     }
 
     fun generateBcryptStyleHash(text: String, salt: String): String {
@@ -53,17 +47,6 @@ object NativeCryptoHelper {
         return "\$2b\$10\$$salt22$base64Like"
     }
 
-    fun verify(passwordInput: String, storedHashWithSalt: String): Boolean {
-        if (passwordInput.isEmpty() || storedHashWithSalt.isEmpty() || !storedHashWithSalt.contains(":")) {
-            return false
-        }
-        val parts = storedHashWithSalt.split(":")
-        val salt = parts[0]
-        val newHash = hashWithSalt(passwordInput, salt)
-        return newHash == storedHashWithSalt
-    }
-
-    // IMPRESIÓN LIMPIA Y FIJA PARA COPIAR
     fun printFixedForCopying(originalPassword: String, bcryptHash: String) {
         println("\n==============================================")
         println("   DATOS FIJOS PARA COPIAR A BCRYPT WEB")
@@ -77,26 +60,22 @@ object NativeCryptoHelper {
     }
 }
 
-// ==========================================
-// 2. PANTALLA LOGIN
-// ==========================================
-@OptIn(ExperimentalMaterial3Api::class)
+data class CuentaUsuario(
+    val usuario: String,
+    val contrasena: String
+)
+
 @Composable
 fun LoginScreen(
     onLoginExitoso: () -> Unit
 ) {
-    var user by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
-    // Mantenemos un Salt estático para evitar que el hash cambie solo
-    var saltEstático by remember { mutableStateOf(NativeCryptoHelper.generateSalt()) }
-    var hashActual by remember { mutableStateOf("") }
-    var bcryptFormattedHash by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var usuarioIngresado by remember { mutableStateOf("") }
+    var passwordIngresada by remember { mutableStateOf("") }
     var mensajeError by remember { mutableStateOf("") }
 
-    val usuarioCorrecto = "nadir"
-    val saltGuardado = remember { NativeCryptoHelper.generateSalt() }
-    val hashGuardadoBD = remember { NativeCryptoHelper.hashWithSalt("\$2a\$10\$0DChu2iJoUnwrayv7KJKWueGdYOGzVFwP5Yj5.w6sx0r0UR1Dd2bW", saltGuardado) }
+    var saltEstatico by remember { mutableStateOf(NativeCryptoHelper.generateSalt()) }
+    var bcryptFormattedHash by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -108,7 +87,7 @@ fun LoginScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Image(
-            painter = painterResource(id = R.drawable.foto_portada),
+            painter = painterResource(id = R.drawable.logoapp),
             contentDescription = "Logo Readwood",
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -126,21 +105,16 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Campo Usuario
+        // Campo para ingresar Usuario
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "user:",
-                fontSize = 14.sp,
-                color = ReadwoodDarkTextMuted,
-                modifier = Modifier.width(80.dp)
-            )
+            Text("user:", fontSize = 14.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.width(80.dp))
             OutlinedTextField(
-                value = user,
+                value = usuarioIngresado,
                 onValueChange = {
-                    user = it
+                    usuarioIngresado = it
                     mensajeError = ""
                 },
                 placeholder = { Text("aqui el usuario", color = ReadwoodDarkTextMuted) },
@@ -158,28 +132,44 @@ fun LoginScreen(
             )
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Opción para registrar/agregar cuenta en el JSON
+        Text(
+            text = "+ Agregar cuenta",
+            color = ReadwoodDarkPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val userClean = usuarioIngresado.trim()
+                    val passClean = passwordIngresada.trim()
+
+                    if (userClean.isNotEmpty() && passClean.isNotEmpty()) {
+                        guardarPerfilEnJson(context, CuentaUsuario(userClean, passClean))
+                        mensajeError = "¡Cuenta guardada exitosamente en el JSON!"
+                    } else {
+                        mensajeError = "Ingresa usuario y contraseña antes de guardar"
+                    }
+                }
+                .padding(vertical = 4.dp)
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Campo Contraseña
+        // Campo para ingresar Contraseña
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "password:",
-                fontSize = 14.sp,
-                color = ReadwoodDarkTextMuted,
-                modifier = Modifier.width(80.dp)
-            )
+            Text("password:", fontSize = 14.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.width(80.dp))
             OutlinedTextField(
-                value = password,
+                value = passwordIngresada,
                 onValueChange = {
-                    password = it
+                    passwordIngresada = it
                     mensajeError = ""
-
-                    // Calculamos con el salt fijo actual
-                    hashActual = NativeCryptoHelper.hashWithSalt(it, saltEstático)
-                    bcryptFormattedHash = NativeCryptoHelper.generateBcryptStyleHash(it, saltEstático)
+                    bcryptFormattedHash = NativeCryptoHelper.generateBcryptStyleHash(it, saltEstatico)
                 },
                 placeholder = { Text("aqui mete la contrasena", color = ReadwoodDarkTextMuted) },
                 singleLine = true,
@@ -198,7 +188,6 @@ fun LoginScreen(
             )
         }
 
-        // Muestra en la app el Hash encriptado y permite fijarlo/imprimirlo
         if (bcryptFormattedHash.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
@@ -207,9 +196,8 @@ fun LoginScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        // Imprime en Logcat el hash actual estático sin cambiarlo
                         NativeCryptoHelper.printFixedForCopying(
-                            originalPassword = password,
+                            originalPassword = passwordIngresada,
                             bcryptHash = bcryptFormattedHash
                         )
                     }
@@ -235,7 +223,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = mensajeError,
-                color = Color(0xFFFF6B6B),
+                color = if (mensajeError.contains("exitosamente")) ReadwoodDarkPrimary else Color(0xFFFF6B6B),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.fillMaxWidth()
@@ -244,24 +232,27 @@ fun LoginScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Botón Aceptar
         Button(
             onClick = {
-                val userInput = user.trim()
-                val esUsuarioValido = userInput == usuarioCorrecto
-                val esContrasenaValida = NativeCryptoHelper.verify(password, hashGuardadoBD)
+                val userClean = usuarioIngresado.trim()
+                val passClean = passwordIngresada.trim()
 
-                // Imprimimos la versión fija para copiar al hacer click en Aceptar
                 NativeCryptoHelper.printFixedForCopying(
-                    originalPassword = password,
+                    originalPassword = passwordIngresada,
                     bcryptHash = bcryptFormattedHash
                 )
 
-                if (esUsuarioValido && esContrasenaValida) {
+                // Cargar cuentas guardadas en el JSON
+                val cuentasGuardadas = cargarCuentasGuardadas(context)
+
+                // Verificar si coinciden con alguna registrada en el JSON
+                val existeEnJson = cuentasGuardadas.any { it.usuario == userClean && it.contrasena == passClean }
+
+                if (existeEnJson) {
                     mensajeError = ""
                     onLoginExitoso()
                 } else {
-                    mensajeError = "El usuario o la contraseña no coinciden"
+                    mensajeError = "La cuenta o contraseña no coinciden con las guardadas"
                 }
             },
             modifier = Modifier
@@ -270,12 +261,7 @@ fun LoginScreen(
             colors = ButtonDefaults.buttonColors(containerColor = ReadwoodDarkButton),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(
-                text = "Aceptar",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Aceptar", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -287,4 +273,58 @@ fun LoginScreen(
             fontWeight = FontWeight.Medium
         )
     }
+}
+
+private fun guardarPerfilEnJson(context: Context, nuevoPerfil: CuentaUsuario) {
+    try {
+        val file = File(context.filesDir, "perfil.json")
+        val jsonArray = if (file.exists()) {
+            val contenido = file.readText()
+            if (contenido.startsWith("[")) JSONArray(contenido) else JSONArray()
+        } else {
+            JSONArray()
+        }
+
+        var encontrada = false
+        for (i in 0 until jsonArray.length()) {
+            val item = jsonArray.getJSONObject(i)
+            if (item.getString("usuario") == nuevoPerfil.usuario) {
+                item.put("contrasena", nuevoPerfil.contrasena)
+                encontrada = true
+                break
+            }
+        }
+
+        if (!encontrada) {
+            val nuevoObj = JSONObject().apply {
+                put("usuario", nuevoPerfil.usuario)
+                put("contrasena", nuevoPerfil.contrasena)
+            }
+            jsonArray.put(nuevoObj)
+        }
+
+        val jsonString = jsonArray.toString(4)
+        file.writeText(jsonString)
+
+        Log.d("ReadwoodJson", "JSON actualizado exitosamente:\n$jsonString")
+    } catch (e: Exception) {
+        Log.e("ReadwoodJson", "Error al guardar en JSON: ${e.message}")
+    }
+}
+
+private fun cargarCuentasGuardadas(context: Context): List<CuentaUsuario> {
+    val lista = mutableListOf<CuentaUsuario>()
+    try {
+        val file = File(context.filesDir, "perfil.json")
+        if (file.exists()) {
+            val jsonArray = JSONArray(file.readText())
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                lista.add(CuentaUsuario(obj.getString("usuario"), obj.getString("contrasena")))
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("ReadwoodJson", "Error al cargar JSON: ${e.message}")
+    }
+    return lista
 }
