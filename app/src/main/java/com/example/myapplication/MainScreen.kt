@@ -1,5 +1,6 @@
 package com.example.myapplication
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -18,215 +20,94 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.ui.theme.*
 
-@Composable
-fun LoginScreen(
-    onLoginExitoso: () -> Unit,
-    onIrARegistro: () -> Unit,
-    onIrARecuperar: () -> Unit
-) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+// Colores privados de respaldo para garantizar que compila inmediatamente en este archivo
+private val ReadwoodBg = Color(0xFFF8F3ED)
+private val ReadwoodPurple = Color(0xFF6B3A50)
+private val ReadwoodTextDark = Color(0xFF2D2329)
+private val ReadwoodTextMuted = Color(0xFF8A7E85)
+private val ReadwoodBorder = Color(0xFFE0D7CD)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(ReadwoodDarkBackground)
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Readwood",
-            fontSize = 32.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkPrimary
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Text(
-            text = "Vuelve a tu historia.",
-            fontSize = 24.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkTextPrimary,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Un lugar para leer, imaginar y compartir lo que llevas dentro.",
-            fontSize = 13.sp,
-            color = ReadwoodDarkTextMuted,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Email", fontSize = 12.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(4.dp))
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            placeholder = { Text("tu.email@ejemplo.com", color = ReadwoodDarkTextMuted) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
-            )
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text("Contraseña", fontSize = 12.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(4.dp))
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
-            )
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "¿Olvidaste tu contraseña?",
-            fontSize = 12.sp,
-            color = ReadwoodDarkPrimary,
-            modifier = Modifier
-                .align(Alignment.End)
-                .clickable { onIrARecuperar() }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(
-            onClick = { onLoginExitoso() },
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodDarkButton),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text("Iniciar sesión", color = Color.White, fontSize = 15.sp)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Row {
-            Text("¿Es tu primera página? ", fontSize = 13.sp, color = ReadwoodDarkTextMuted)
-            Text(
-                text = "Crea una cuenta",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = ReadwoodDarkPrimary,
-                modifier = Modifier.clickable { onIrARegistro() }
-            )
-        }
-    }
-}
-
+// --- REGISTRO (Pantalla Inicial según Balsamiq) ---
 @Composable
 fun RegistroScreen(
     onRegistroExitoso: () -> Unit,
     onIrALogin: () -> Unit
 ) {
-    var nombre by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
+    var correo by remember { mutableStateOf("") }
+    var usuario by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ReadwoodDarkBackground)
+            .background(ReadwoodBg)
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.logoapp),
+            contentDescription = "Logo Readwood",
+            modifier = Modifier.size(90.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         Text(
-            text = "Readwood",
-            fontSize = 32.sp,
+            text = "Hola!!!! Bienvenido a Read Wood",
+            fontSize = 20.sp,
             fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkPrimary
+            color = ReadwoodTextDark
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(
-            text = "Las buenas historias empiezan contigo.",
-            fontSize = 22.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkTextPrimary,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text("Nombre", fontSize = 12.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.fillMaxWidth())
+        // Correo electrónico
         OutlinedTextField(
-            value = nombre,
-            onValueChange = { nombre = it },
+            value = correo,
+            onValueChange = { correo = it },
+            placeholder = { Text("Correo electrónico", color = ReadwoodTextMuted) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
+                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
             )
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text("Email", fontSize = 12.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.fillMaxWidth())
+        // Nombre de usuario
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
+            value = usuario,
+            onValueChange = { usuario = it },
+            placeholder = { Text("Nombre de usuario", color = ReadwoodTextMuted) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
+                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
             )
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text("Contraseña", fontSize = 12.sp, color = ReadwoodDarkTextMuted, modifier = Modifier.fillMaxWidth())
+        // Contraseña
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
+            placeholder = { Text("Ingresa una contraseña", color = ReadwoodTextMuted) },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
+                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
             )
         )
 
@@ -235,128 +116,279 @@ fun RegistroScreen(
         Button(
             onClick = { onRegistroExitoso() },
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodDarkButton),
+            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodPurple),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Crear mi cuenta", color = Color.White, fontSize = 15.sp)
+            Text("Ingresar", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row {
-            Text("¿Ya tienes cuenta? ", fontSize = 13.sp, color = ReadwoodDarkTextMuted)
-            Text(
-                text = "Inicia sesión",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = ReadwoodDarkPrimary,
-                modifier = Modifier.clickable { onIrALogin() }
-            )
-        }
+        Text(
+            text = "Ya estuve aquí",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = ReadwoodPurple,
+            modifier = Modifier.clickable { onIrALogin() }
+        )
     }
 }
 
+// --- LOGIN ---
 @Composable
-fun RecuperarPasswordScreen(onVolverALogin: () -> Unit) {
-    var email by remember { mutableStateOf("") }
+fun LoginScreen(
+    onLoginExitoso: () -> Unit,
+    onIrARegistro: () -> Unit,
+    onIrARecuperar: () -> Unit
+) {
+    var usuario by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var errorMensaje by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ReadwoodDarkBackground)
-            .padding(24.dp),
+            .background(ReadwoodBg)
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.logoapp),
+            contentDescription = "Logo Readwood",
+            modifier = Modifier.size(90.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         Text(
-            text = "Retoma el hilo.",
-            fontSize = 24.sp,
+            text = "Hola de nuevo!!!!!",
+            fontSize = 22.sp,
             fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkTextPrimary,
-            modifier = Modifier.fillMaxWidth()
+            color = ReadwoodTextDark
         )
-        Text(
-            text = "Escribe el email de tu cuenta y te enviaremos un enlace.",
-            fontSize = 13.sp,
-            color = ReadwoodDarkTextMuted,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-        )
+
+        if (errorMensaje.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(errorMensaje, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            placeholder = { Text("Email de tu cuenta", color = ReadwoodDarkTextMuted) },
+            value = usuario,
+            onValueChange = { usuario = it },
+            placeholder = { Text("Nombre de usuario", color = ReadwoodTextMuted) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = ReadwoodDarkSurface,
-                unfocusedContainerColor = ReadwoodDarkSurface,
-                focusedBorderColor = ReadwoodDarkPrimary,
-                unfocusedBorderColor = ReadwoodDarkBorder,
-                focusedTextColor = ReadwoodDarkTextPrimary,
-                unfocusedTextColor = ReadwoodDarkTextPrimary
+                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
             )
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            placeholder = { Text("Ingresa una contraseña", color = ReadwoodTextMuted) },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
+            )
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Olvidé mi contraseña",
+            fontSize = 12.sp,
+            color = ReadwoodPurple,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .align(Alignment.End)
+                .clickable { onIrARecuperar() }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         Button(
-            onClick = { onVolverALogin() },
+            onClick = {
+                if (usuario.isBlank() || password.isBlank()) {
+                    errorMensaje = "Tu contraseña o usuario no concuerda"
+                } else {
+                    onLoginExitoso()
+                }
+            },
             modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodDarkButton),
+            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodPurple),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Enviar enlace de recuperación", color = Color.White)
+            Text("Ingresar", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Volver al inicio de sesión",
+            text = "Crear nueva cuenta",
             fontSize = 13.sp,
-            color = ReadwoodDarkPrimary,
-            modifier = Modifier.clickable { onVolverALogin() }
+            fontWeight = FontWeight.Bold,
+            color = ReadwoodTextMuted,
+            modifier = Modifier.clickable { onIrARegistro() }
         )
     }
 }
 
+// --- RESTABLECER CONTRASEÑA ---
 @Composable
-fun MainAppScreen(onCerrarSesion: () -> Unit) {
+fun RecuperarPasswordScreen(onVolverALogin: () -> Unit) {
+    var paso by remember { mutableStateOf(1) } // 1: Pedir Correo, 2: Código y Nueva Contraseña
+    var correo by remember { mutableStateOf("") }
+    var codigo by remember { mutableStateOf("") }
+    var nuevaPassword by remember { mutableStateOf("") }
+    var reafirmaPassword by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ReadwoodDarkBackground)
-            .padding(24.dp),
+            .background(ReadwoodBg)
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "Readwood",
-            fontSize = 28.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = ReadwoodDarkPrimary
+        Image(
+            painter = painterResource(id = R.drawable.logoapp),
+            contentDescription = "Logo Readwood",
+            modifier = Modifier.size(80.dp)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Sin historias guardadas.",
-            fontSize = 16.sp,
-            color = ReadwoodDarkTextMuted
+            text = "Restablecer la contraseña",
+            fontSize = 22.sp,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            color = ReadwoodTextDark
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        Button(
-            onClick = { onCerrarSesion() },
-            colors = ButtonDefaults.buttonColors(containerColor = ReadwoodDarkButton),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text("Cerrar sesión", color = Color.White)
+        if (paso == 1) {
+            Text(
+                text = "Ingresa tu correo electrónico, se te enviará un código a tu cuenta.",
+                fontSize = 13.sp,
+                color = ReadwoodTextMuted
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            OutlinedTextField(
+                value = correo,
+                onValueChange = { correo = it },
+                placeholder = { Text("Correo electrónico", color = ReadwoodTextMuted) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                    focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                    focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
+                )
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Button(
+                onClick = { paso = 2 },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ReadwoodPurple),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Ingresar", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            Text(
+                text = "Pon el código y dale a la opción restablecer la contraseña.",
+                fontSize = 13.sp,
+                color = ReadwoodTextMuted
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = codigo,
+                onValueChange = { codigo = it },
+                placeholder = { Text("Código de verificación", color = ReadwoodTextMuted) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                    focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                    focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
+                )
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = nuevaPassword,
+                onValueChange = { nuevaPassword = it },
+                placeholder = { Text("Coloca tu nueva contraseña", color = ReadwoodTextMuted) },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                    focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                    focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
+                )
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = reafirmaPassword,
+                onValueChange = { reafirmaPassword = it },
+                placeholder = { Text("Reafirma la contraseña", color = ReadwoodTextMuted) },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White,
+                    focusedBorderColor = ReadwoodPurple, unfocusedBorderColor = ReadwoodBorder,
+                    focusedTextColor = ReadwoodTextDark, unfocusedTextColor = ReadwoodTextDark
+                )
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Button(
+                onClick = { onVolverALogin() },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ReadwoodPurple),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Cambiar contraseña", color = Color.White, fontWeight = FontWeight.Bold)
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Volver",
+            fontSize = 13.sp,
+            color = ReadwoodPurple,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { onVolverALogin() }
+        )
     }
 }
