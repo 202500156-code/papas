@@ -32,7 +32,7 @@ data class ItemEditor(
     var texto: String
 )
 
-// Colores privados del tema Readwood para compilar sin conflictos
+// Colores privados del tema Readwood
 private val ReadwoodBg = Color(0xFFF8F3ED)
 private val ReadwoodPurple = Color(0xFF6B3A50)
 private val ReadwoodCardBg = Color(0xFFF0EAE1)
@@ -42,9 +42,9 @@ private val ReadwoodBorder = Color(0xFFE0D7CD)
 
 @Composable
 fun EditorScreen(
-    onVolver: () -> Unit = {}
+    onVolver: () -> Unit = {},
+    onPublicarExitoso: () -> Unit = {} // <--- AQUÍ ESTABA LA COLISIÓN: Se agrega el parámetro que faltaba
 ) {
-    // Lista reactiva para reflejar cambios instantáneamente al usuario
     val listaItems = remember { mutableStateListOf<ItemEditor>() }
 
     var usuarioInput by remember { mutableStateOf("") }
@@ -54,7 +54,7 @@ fun EditorScreen(
     var cargando by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
-    // 1. GET: Cargar datos iniciales desde la API pública al abrir el Editor
+    // 1. GET: Cargar datos iniciales desde la API pública
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {
@@ -74,8 +74,8 @@ fun EditorScreen(
                         datosProcesados.add(
                             ItemEditor(
                                 id = item.getInt("id"),
-                                usuario = item.getString("name").take(15), // Mapea a "user"
-                                texto = item.getString("body").take(50)    // Mapea a "text"
+                                usuario = item.getString("name").take(15),
+                                texto = item.getString("body").take(50)
                             )
                         )
                     }
@@ -92,7 +92,7 @@ fun EditorScreen(
         }
     }
 
-    // 2. CREAR / EDITAR (Simula POST/PUT en API y altera la UI en segundo plano)
+    // 2. CREAR / EDITAR (Simula POST/PUT en API)
     fun guardarOActualizar() {
         if (usuarioInput.isBlank() || textoInput.isBlank()) return
 
@@ -101,7 +101,6 @@ fun EditorScreen(
         val userTemp = usuarioInput
         val textTemp = textoInput
 
-        // Actualización inmediata en pantalla
         if (esEdicion) {
             val index = listaItems.indexOfFirst { it.id == idActual }
             if (index != -1) {
@@ -111,12 +110,13 @@ fun EditorScreen(
             listaItems.add(0, ItemEditor(id = idActual, usuario = userTemp, texto = textTemp))
         }
 
-        // Limpiar campos
         usuarioInput = ""
         textoInput = ""
         idEnEdicion = null
 
-        // Petición de red en segundo plano
+        // Se invoca el callback para notificar éxito a MainActivity
+        onPublicarExitoso()
+
         scope.launch(Dispatchers.IO) {
             try {
                 val urlString = if (esEdicion) "https://jsonplaceholder.typicode.com/comments/$idActual" else "https://jsonplaceholder.typicode.com/comments"
@@ -155,14 +155,12 @@ fun EditorScreen(
         }
     }
 
-    // ESTRUCTURA VISUAL DEL EDITOR
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(ReadwoodBg)
             .padding(20.dp)
     ) {
-        // Cabecera del Editor
         Text(
             text = "Editor de Registro",
             fontSize = 24.sp,
@@ -177,7 +175,6 @@ fun EditorScreen(
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // FORMULARIO DE EDICIÓN
         Card(
             colors = CardDefaults.cardColors(containerColor = Color.White),
             shape = RoundedCornerShape(12.dp),
@@ -245,7 +242,6 @@ fun EditorScreen(
             }
         }
 
-        // FORMATO DE SALIDA IGUAL AL PIZARRÓN ("Usuario: jon / Texto: hello xd")
         if (cargando) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = ReadwoodPurple)
@@ -280,7 +276,6 @@ fun EditorScreen(
                                 )
                             }
 
-                            // Cargar datos en los campos para editar
                             IconButton(onClick = {
                                 idEnEdicion = item.id
                                 usuarioInput = item.usuario
@@ -289,7 +284,6 @@ fun EditorScreen(
                                 Icon(Icons.Outlined.Edit, contentDescription = "Editar", tint = ReadwoodPurple)
                             }
 
-                            // Eliminar entrada
                             IconButton(onClick = { eliminarItem(item.id) }) {
                                 Icon(Icons.Outlined.Delete, contentDescription = "Eliminar", tint = Color(0xFFC62828))
                             }
