@@ -25,7 +25,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-// Modelo de datos para el editor
 data class ItemEditor(
     val id: Int,
     var usuario: String,
@@ -43,7 +42,7 @@ private val ReadwoodBorder = Color(0xFFE0D7CD)
 @Composable
 fun EditorScreen(
     onVolver: () -> Unit = {},
-    onPublicarExitoso: () -> Unit = {} // <--- AQUÍ ESTABA LA COLISIÓN: Se agrega el parámetro que faltaba
+    onPublicarExitoso: () -> Unit = {}
 ) {
     val listaItems = remember { mutableStateListOf<ItemEditor>() }
 
@@ -54,7 +53,6 @@ fun EditorScreen(
     var cargando by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
-    // 1. GET: Cargar datos iniciales desde la API pública
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {
@@ -74,8 +72,9 @@ fun EditorScreen(
                         datosProcesados.add(
                             ItemEditor(
                                 id = item.getInt("id"),
-                                usuario = item.getString("name").take(15),
+                                usuario = item.getString("name").take(15) + "lolxd",
                                 texto = item.getString("body").take(50)
+
                             )
                         )
                     }
@@ -92,7 +91,6 @@ fun EditorScreen(
         }
     }
 
-    // 2. CREAR / EDITAR (Simula POST/PUT en API)
     fun guardarOActualizar() {
         if (usuarioInput.isBlank() || textoInput.isBlank()) return
 
@@ -139,7 +137,7 @@ fun EditorScreen(
         }
     }
 
-    // 3. ELIMINAR (DELETE)
+
     fun eliminarItem(id: Int) {
         listaItems.removeAll { it.id == id }
 
