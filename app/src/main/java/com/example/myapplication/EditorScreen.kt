@@ -4,8 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
@@ -17,278 +20,259 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-
-data class ItemEditor(
-    val id: Int,
-    var usuario: String,
-    var texto: String
-)
-
-// Colores privados del tema Readwood
-private val ReadwoodBg = Color(0xFFF8F3ED)
-private val ReadwoodPurple = Color(0xFF6B3A50)
-private val ReadwoodCardBg = Color(0xFFF0EAE1)
-private val ReadwoodTextDark = Color(0xFF2D2329)
-private val ReadwoodTextMuted = Color(0xFF8A7E85)
-private val ReadwoodBorder = Color(0xFFE0D7CD)
+import com.example.myapplication.ui.theme.LocalReadwoodColors
+import java.util.UUID
 
 @Composable
 fun EditorScreen(
-    onVolver: () -> Unit = {},
-    onPublicarExitoso: () -> Unit = {}
+    usuario: UsuarioPerfil,
+    misNovelas: List<Novela>
 ) {
-    val listaItems = remember { mutableStateListOf<ItemEditor>() }
+    val colors = LocalReadwoodColors.current
+    var novelaEditando by remember { mutableStateOf<Novela?>(null) }
+    var creandoNueva by remember { mutableStateOf(false) }
 
-    var usuarioInput by remember { mutableStateOf("") }
-    var textoInput by remember { mutableStateOf("") }
-    var idEnEdicion by remember { mutableStateOf<Int?>(null) }
-
-    var cargando by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            try {
-                val connection = (URL("https://jsonplaceholder.typicode.com/comments?_limit=10").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 8000
-                    readTimeout = 8000
+    if (creandoNueva || novelaEditando != null) {
+        FormularioNovelaYCapitulos(
+            usuario = usuario,
+            novelaInicial = novelaEditando,
+            onCerrar = {
+                creandoNueva = false
+                novelaEditando = null
+            }
+        )
+    } else {
+        // Panel de Escritor
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.bg)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Panel de Escritor", fontFamily = FontFamily.Serif, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                Button(
+                    onClick = { creandoNueva = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
+                ) {
+                    Icon(Icons.Outlined.Add, contentDescription = null, tint = Color.White)
+                    Text(" Nueva Novela", color = Color.White)
                 }
+            }
 
-                if (connection.responseCode == 200) {
-                    val jsonTexto = connection.inputStream.bufferedReader().use { it.readText() }
-                    val jsonArray = JSONArray(jsonTexto)
+            Spacer(modifier = Modifier.height(12.dp))
 
-                    val datosProcesados = mutableListOf<ItemEditor>()
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.getJSONObject(i)
-                        datosProcesados.add(
-                            ItemEditor(
-                                id = item.getInt("id"),
-                                usuario = item.getString("name").take(15) + "lolxd",
-                                texto = item.getString("body").take(50)
-
-                            )
-                        )
+            val totalVistas = misNovelas.sumOf { it.vistas }
+            val totalLikes = misNovelas.sumOf { it.meGusta }
+            Card(colors = CardDefaults.cardColors(containerColor = colors.cardBg), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${misNovelas.size}", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = colors.purple)
+                        Text("Obras", fontSize = 12.sp, color = colors.textMuted)
                     }
-                    withContext(Dispatchers.Main) {
-                        listaItems.clear()
-                        listaItems.addAll(datosProcesados)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("$totalVistas", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = colors.purple)
+                        Text("Lecturas", fontSize = 12.sp, color = colors.textMuted)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("$totalLikes", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = colors.purple)
+                        Text("Likes", fontSize = 12.sp, color = colors.textMuted)
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                cargando = false
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Mis Novelas y Borradores", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (misNovelas.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Aún no has escrito ninguna novela.", color = colors.textMuted)
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(misNovelas, key = { it.id }) { nov ->
+                        Card(colors = CardDefaults.cardColors(containerColor = colors.cardBg), modifier = Modifier.fillMaxWidth()) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(nov.titulo, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
+                                    Text(
+                                        text = if (nov.esPublicada) "Publicada • ${nov.capitulos.size} cap." else "🔒 Borrador privado (Solo tú la ves)",
+                                        fontSize = 12.sp,
+                                        color = colors.purple
+                                    )
+                                }
+                                IconButton(onClick = { novelaEditando = nov }) {
+                                    Icon(Icons.Outlined.Edit, contentDescription = "Editar", tint = colors.purple)
+                                }
+                                IconButton(onClick = { FirestoreService.eliminarNovela(nov.id) }) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
 
-    fun guardarOActualizar() {
-        if (usuarioInput.isBlank() || textoInput.isBlank()) return
+@Composable
+private fun FormularioNovelaYCapitulos(
+    usuario: UsuarioPerfil,
+    novelaInicial: Novela?,
+    onCerrar: () -> Unit
+) {
+    val colors = LocalReadwoodColors.current
+    var titulo by remember { mutableStateOf(novelaInicial?.titulo ?: "") }
+    var sinopsis by remember { mutableStateOf(novelaInicial?.sinopsis ?: "") }
+    var categoria by remember { mutableStateOf(novelaInicial?.categoria ?: "Fantasía") }
+    var esPublicada by remember { mutableStateOf(novelaInicial?.esPublicada ?: false) } // Por defecto inicia como borrador privado
 
-        val esEdicion = idEnEdicion != null
-        val idActual = idEnEdicion ?: ((listaItems.maxOfOrNull { it.id } ?: 0) + 1)
-        val userTemp = usuarioInput
-        val textTemp = textoInput
-
-        if (esEdicion) {
-            val index = listaItems.indexOfFirst { it.id == idActual }
-            if (index != -1) {
-                listaItems[index] = listaItems[index].copy(usuario = userTemp, texto = textTemp)
-            }
-        } else {
-            listaItems.add(0, ItemEditor(id = idActual, usuario = userTemp, texto = textTemp))
-        }
-
-        usuarioInput = ""
-        textoInput = ""
-        idEnEdicion = null
-
-        // Se invoca el callback para notificar éxito a MainActivity
-        onPublicarExitoso()
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val urlString = if (esEdicion) "https://jsonplaceholder.typicode.com/comments/$idActual" else "https://jsonplaceholder.typicode.com/comments"
-                val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
-                    requestMethod = if (esEdicion) "PUT" else "POST"
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                }
-
-                val body = JSONObject().apply {
-                    put("name", userTemp)
-                    put("body", textTemp)
-                }
-
-                connection.outputStream.use { it.write(body.toString().toByteArray()) }
-                val code = connection.responseCode
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    val capitulos = remember {
+        mutableStateListOf<Capitulo>().apply {
+            if (novelaInicial != null) addAll(novelaInicial.capitulos)
         }
     }
 
-
-    fun eliminarItem(id: Int) {
-        listaItems.removeAll { it.id == id }
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val connection = (URL("https://jsonplaceholder.typicode.com/comments/$id").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "DELETE"
-                }
-                val code = connection.responseCode
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
+    var capTitulo by remember { mutableStateOf("") }
+    var capContenido by remember { mutableStateOf("") }
+    var capEsBorrador by remember { mutableStateOf(true) }
+    var guardando by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ReadwoodBg)
-            .padding(20.dp)
+            .background(colors.bg)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        Text(
-            text = "Editor de Registro",
-            fontSize = 24.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = ReadwoodTextDark
-        )
-        Text(
-            text = "Modifica y gestiona las entradas de la API pública",
-            fontSize = 12.sp,
-            color = ReadwoodTextMuted,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = if (idEnEdicion == null) "Nueva Entrada" else "Editando ID #$idEnEdicion",
-                    fontWeight = FontWeight.Bold,
-                    color = ReadwoodPurple,
-                    fontSize = 14.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = usuarioInput,
-                    onValueChange = { usuarioInput = it },
-                    label = { Text("Usuario (user)", color = ReadwoodTextMuted) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ReadwoodPurple,
-                        unfocusedBorderColor = ReadwoodBorder,
-                        focusedTextColor = ReadwoodTextDark,
-                        unfocusedTextColor = ReadwoodTextDark
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = textoInput,
-                    onValueChange = { textoInput = it },
-                    label = { Text("Texto (text)", color = ReadwoodTextMuted) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ReadwoodPurple,
-                        unfocusedBorderColor = ReadwoodBorder,
-                        focusedTextColor = ReadwoodTextDark,
-                        unfocusedTextColor = ReadwoodTextDark
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                    if (idEnEdicion != null) {
-                        TextButton(onClick = {
-                            idEnEdicion = null
-                            usuarioInput = ""
-                            textoInput = ""
-                        }) {
-                            Text("Cancelar", color = ReadwoodTextMuted)
-                        }
-                    }
-                    Button(
-                        onClick = { guardarOActualizar() },
-                        colors = ButtonDefaults.buttonColors(containerColor = ReadwoodPurple),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(if (idEnEdicion == null) "Agregar" else "Guardar Cambios")
-                    }
-                }
-            }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onCerrar) { Text("← Cancelar", color = colors.purple) }
+            Text(if (novelaInicial == null) "Nueva Novela" else "Editar Novela", fontWeight = FontWeight.Bold, color = colors.textDark)
         }
 
-        if (cargando) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = ReadwoodPurple)
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(listaItems, key = { it.id }) { item ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = ReadwoodCardBg),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Usuario: ${item.usuario}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = ReadwoodTextDark
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Texto: ${item.texto}",
-                                    fontSize = 14.sp,
-                                    color = ReadwoodTextMuted
-                                )
-                            }
+        OutlinedTextField(
+            value = titulo,
+            onValueChange = { titulo = it },
+            label = { Text("Título de la novela") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
-                            IconButton(onClick = {
-                                idEnEdicion = item.id
-                                usuarioInput = item.usuario
-                                textoInput = item.texto
-                            }) {
-                                Icon(Icons.Outlined.Edit, contentDescription = "Editar", tint = ReadwoodPurple)
-                            }
+        OutlinedTextField(
+            value = categoria,
+            onValueChange = { categoria = it },
+            label = { Text("Género (Fantasía, Romance, Misterio...)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
-                            IconButton(onClick = { eliminarItem(item.id) }) {
-                                Icon(Icons.Outlined.Delete, contentDescription = "Eliminar", tint = Color(0xFFC62828))
-                            }
-                        }
-                    }
+        OutlinedTextField(
+            value = sinopsis,
+            onValueChange = { sinopsis = it },
+            label = { Text("Sinopsis") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+            Switch(checked = esPublicada, onCheckedChange = { esPublicada = it })
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (esPublicada) "Pública (Visible para todos los lectores)" else "Borrador privado (Solo visible para ti)",
+                fontSize = 13.sp,
+                color = colors.purple,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+        Text("Agregar / Editar Capítulo", fontWeight = FontWeight.Bold, color = colors.textDark)
+
+        OutlinedTextField(
+            value = capTitulo,
+            onValueChange = { capTitulo = it },
+            label = { Text("Título del capítulo") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        OutlinedTextField(
+            value = capContenido,
+            onValueChange = { capContenido = it },
+            label = { Text("Contenido del capítulo (${capContenido.split("\\s+".toRegex()).filter { it.isNotBlank() }.size} palabras)") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 5
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = capEsBorrador, onCheckedChange = { capEsBorrador = it })
+            Text("Guardar este capítulo como borrador (solo tú lo ves)", fontSize = 12.sp, color = colors.textMuted)
+        }
+
+        OutlinedButton(
+            onClick = {
+                if (capTitulo.isNotBlank() && capContenido.isNotBlank()) {
+                    capitulos.add(
+                        Capitulo(
+                            id = UUID.randomUUID().toString(),
+                            numero = capitulos.size + 1,
+                            titulo = capTitulo.trim(),
+                            contenido = capContenido.trim(),
+                            esBorrador = capEsBorrador
+                        )
+                    )
+                    capTitulo = ""
+                    capContenido = ""
                 }
-            }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("+ Añadir capítulo a la lista", color = colors.purple)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        capitulos.forEach { c ->
+            Text("• Cap. ${c.numero}: ${c.titulo} ${if (c.esBorrador) "[BORRADOR]" else "[PUBLICADO]"}", fontSize = 12.sp, color = colors.textDark)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                if (titulo.isBlank()) return@Button
+                guardando = true
+                val novelaFinal = Novela(
+                    id = novelaInicial?.id ?: "",
+                    autorId = usuario.id,
+                    autor = usuario.usuario,
+                    titulo = titulo.trim(),
+                    sinopsis = sinopsis.trim(),
+                    categoria = categoria.trim().ifEmpty { "Fantasía" },
+                    esPublicada = esPublicada,
+                    meGusta = novelaInicial?.meGusta ?: 0,
+                    noMeGusta = novelaInicial?.noMeGusta ?: 0,
+                    vistas = novelaInicial?.vistas ?: 0,
+                    capitulos = capitulos.toList()
+                )
+                FirestoreService.guardarNovela(
+                    novela = novelaFinal,
+                    onSuccess = { guardando = false; onCerrar() },
+                    onFailure = { guardando = false }
+                )
+            },
+            enabled = !guardando,
+            colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Text(if (esPublicada) "Guardar y Publicar Novela" else "Guardar Borrador Privado", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
