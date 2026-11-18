@@ -10,9 +10,9 @@
               <option name="connection">
                 <ConnectionSetting>
                   <option name="appId" value="com.example.myapplication" />
-                  <option name="mobileSdkAppId" value="1:178373582969:android:1c32bd5a10c1f8b231f4a8" />
-                  <option name="projectId" value="read-wood" />
-                  <option name="projectNumber" value="178373582969" />
+                  <option name="mobileSdkAppId" value="1:561883028961:android:3d1337ec2dac80619fc6a0" />
+                  <option name="projectId" value="reedwood-app" />
+                  <option name="projectNumber" value="561883028961" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
