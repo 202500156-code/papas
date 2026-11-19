@@ -1,8 +1,8 @@
 package com.example.myapplication
 
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
 import java.security.MessageDigest
 import java.security.SecureRandom
 
@@ -35,11 +35,12 @@ object FirestoreService {
     private val colComentarios = db.collection("comentarios")
     private val colNotificaciones = db.collection("notificaciones")
 
-    // --- 1. AUTENTICACIÓN ENCRIPTADA MULTI-DISPOSITIVO ---
     fun registrarUsuario(
         usuario: String,
         correo: String,
         passwordPlano: String,
+        fotoBase64: String = "",
+        consintioFoto: Boolean = false,
         onSuccess: (UsuarioPerfil) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -58,6 +59,8 @@ object FirestoreService {
                     correo = correo.trim(),
                     passwordHash = hash,
                     salt = salt,
+                    fotoBase64 = if (consintioFoto) fotoBase64 else "",
+                    consintioFoto = consintioFoto,
                     ocultarSeguidos = false
                 )
                 doc.set(perfil)
@@ -93,11 +96,38 @@ object FirestoreService {
             .addOnFailureListener { onError(it.message ?: "Error de conexión") }
     }
 
+    fun escucharPerfilUsuario(
+        usuarioId: String,
+        onUpdate: (UsuarioPerfil) -> Unit
+    ): ListenerRegistration {
+        return colUsuarios.document(usuarioId).addSnapshotListener { doc, _ ->
+            val perfil = doc?.toObject(UsuarioPerfil::class.java)?.copy(id = doc.id)
+            if (perfil != null) {
+                onUpdate(perfil)
+            }
+        }
+    }
+
+    fun actualizarFotoPerfil(usuarioId: String, fotoBase64: String, consintio: Boolean) {
+        colUsuarios.document(usuarioId).update(
+            mapOf("fotoBase64" to fotoBase64, "consintioFoto" to consintio)
+        )
+    }
+
+    fun actualizarRedesUsuario(usuarioId: String, instagram: String, twitter: String, consintio: Boolean) {
+        colUsuarios.document(usuarioId).update(
+            mapOf(
+                "redInstagram" to instagram.trim(),
+                "redTwitter" to twitter.trim(),
+                "consintioRedes" to consintio
+            )
+        )
+    }
+
     fun actualizarPrivacidadSeguidos(usuarioId: String, ocultar: Boolean) {
         colUsuarios.document(usuarioId).update("ocultarSeguidos", ocultar)
     }
 
-    // --- 2. NOVELAS Y BORRADORES PRIVADOS (SIN NOVELAS FICTICIAS) ---
     fun escucharNovelas(
         usuarioActualId: String,
         onUpdate: (List<Novela>) -> Unit
@@ -106,9 +136,7 @@ object FirestoreService {
             if (snap == null) return@addSnapshotListener
             val lista = snap.documents.mapNotNull { doc ->
                 val n = doc.toObject(Novela::class.java)?.copy(id = doc.id) ?: return@mapNotNull null
-                // Si la novela entera es borrador, solo la ve su autor
                 if (!n.esPublicada && n.autorId != usuarioActualId) return@mapNotNull null
-                // Filtrar capítulos en borrador para que nadie más los vea
                 val capsVisibles = if (n.autorId == usuarioActualId) {
                     n.capitulos
                 } else {
@@ -134,15 +162,13 @@ object FirestoreService {
 
     fun registrarVotoNovela(novela: Novela, esLike: Boolean) {
         val campo = if (esLike) "meGusta" else "noMeGusta"
-        val nuevoValor = (if (esLike) novela.meGusta else novela.noMeGusta) + 1
-        colNovelas.document(novela.id).update(campo, nuevoValor)
+        colNovelas.document(novela.id).update(campo, FieldValue.increment(1))
     }
 
     fun incrementarVistaNovela(novela: Novela) {
-        colNovelas.document(novela.id).update("vistas", novela.vistas + 1)
+        colNovelas.document(novela.id).update("vistas", FieldValue.increment(1))
     }
 
-    // --- 3. TABLA DE RELACIÓN: USUARIO <-> A QUIÉN SIGUE Y NOVELA ---
     fun escucharSeguimientosUsuario(
         usuarioId: String,
         onUpdate: (List<SeguimientoRelacion>) -> Unit
@@ -204,7 +230,6 @@ object FirestoreService {
         )
     }
 
-    // --- 4. COMENTARIOS EN TIEMPO REAL ---
     fun escucharComentarios(
         novelaId: String,
         capituloId: String,
@@ -239,13 +264,13 @@ object FirestoreService {
             texto = texto.trim()
         )
         doc.set(item).addOnSuccessListener {
+            colNovelas.document(novela.id).update("totalComentarios", FieldValue.increment(1))
             if (novela.autorId.isNotEmpty() && novela.autorId != usuario.id) {
                 crearNotificacion(novela.autorId, "${usuario.usuario} comentó en '${novela.titulo}': \"${texto.take(30)}...\"")
             }
         }
     }
 
-    // --- 5. NOTIFICACIONES CON BORRADO LÓGICO ---
     fun crearNotificacion(usuarioId: String, mensaje: String) {
         val doc = colNotificaciones.document()
         val notif = NotificacionItem(
@@ -263,7 +288,6 @@ object FirestoreService {
         usuarioId: String,
         onUpdate: (List<NotificacionItem>) -> Unit
     ): ListenerRegistration {
-        // Solo trae las que NO tienen borrado lógico (eliminada == false)
         return colNotificaciones
             .whereEqualTo("usuarioId", usuarioId)
             .whereEqualTo("eliminada", false)
@@ -281,7 +305,6 @@ object FirestoreService {
     }
 
     fun borradoLogicoNotificacion(notificacionId: String) {
-        // No se borra de la base de datos: se marca eliminada = true
         colNotificaciones.document(notificacionId).update("eliminada", true)
     }
 }

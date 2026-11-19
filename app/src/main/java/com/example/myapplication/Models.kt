@@ -6,6 +6,11 @@ data class UsuarioPerfil(
     val correo: String = "",
     val passwordHash: String = "",
     val salt: String = "",
+    val fotoBase64: String = "",
+    val consintioFoto: Boolean = false,
+    val redInstagram: String = "",
+    val redTwitter: String = "",
+    val consintioRedes: Boolean = false,
     val ocultarSeguidos: Boolean = false
 )
 
@@ -41,12 +46,14 @@ data class Novela(
     val titulo: String = "",
     val sinopsis: String = "",
     val categoria: String = "Fantasía",
-    val etiquetas: List<String> = emptyList(),
-    val esMas18: Boolean = false,
+    val portadaBase64: String = "",     // Imagen subida desde archivos del celular
+    val portadaColorHex: String = "#6B3A50", // Diseño de portada personalizado
+    val portadaSubtitulo: String = "",
     val esPublicada: Boolean = true,
     val meGusta: Int = 0,
     val noMeGusta: Int = 0,
     val vistas: Int = 0,
+    val totalComentarios: Int = 0,
     val capitulos: List<Capitulo> = emptyList()
 )
 
