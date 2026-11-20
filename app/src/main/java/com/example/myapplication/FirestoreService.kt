@@ -32,8 +32,10 @@ object FirestoreService {
     private val colUsuarios = db.collection("usuarios")
     private val colNovelas = db.collection("novelas")
     private val colSeguimientos = db.collection("seguimientos")
+    private val colUsuariosSeguidos = db.collection("usuarios_seguidos")
     private val colComentarios = db.collection("comentarios")
     private val colNotificaciones = db.collection("notificaciones")
+    private val colReportes = db.collection("reportes")
 
     fun registrarUsuario(
         usuario: String,
@@ -44,31 +46,44 @@ object FirestoreService {
         onSuccess: (UsuarioPerfil) -> Unit,
         onError: (String) -> Unit
     ) {
-        colUsuarios.whereEqualTo("usuario", usuario.trim()).get()
-            .addOnSuccessListener { snap ->
-                if (!snap.isEmpty) {
-                    onError("El nombre de usuario ya está en uso.")
+        val usuarioLimpio = ProfanityFilter.censurar(usuario.trim())
+        val correoLimpio = correo.trim().lowercase()
+
+        colUsuarios.whereEqualTo("usuario", usuarioLimpio).get()
+            .addOnSuccessListener { snapUser ->
+                if (!snapUser.isEmpty) {
+                    onError("Ese nombre de usuario ya está registrado. Elige otro.")
                     return@addOnSuccessListener
                 }
-                val doc = colUsuarios.document()
-                val salt = NativeCryptoHelper.generateSalt()
-                val hash = NativeCryptoHelper.generateBcryptStyleHash(passwordPlano.trim(), salt)
-                val perfil = UsuarioPerfil(
-                    id = doc.id,
-                    usuario = usuario.trim(),
-                    correo = correo.trim(),
-                    passwordHash = hash,
-                    salt = salt,
-                    fotoBase64 = if (consintioFoto) fotoBase64 else "",
-                    consintioFoto = consintioFoto,
-                    ocultarSeguidos = false
-                )
-                doc.set(perfil)
-                    .addOnSuccessListener {
-                        crearNotificacion(doc.id, "Bienvenido a Readwood, ${perfil.usuario}.")
-                        onSuccess(perfil)
+                colUsuarios.whereEqualTo("correo", correoLimpio).get()
+                    .addOnSuccessListener { snapMail ->
+                        if (!snapMail.isEmpty) {
+                            onError("Este correo ya está vinculado a otra cuenta.")
+                            return@addOnSuccessListener
+                        }
+
+                        val doc = colUsuarios.document()
+                        val salt = NativeCryptoHelper.generateSalt()
+                        val hash = NativeCryptoHelper.generateBcryptStyleHash(passwordPlano.trim(), salt)
+                        val perfil = UsuarioPerfil(
+                            id = doc.id,
+                            usuario = usuarioLimpio,
+                            correo = correoLimpio,
+                            passwordHash = hash,
+                            salt = salt,
+                            fotoBase64 = if (consintioFoto) fotoBase64 else "",
+                            consintioFoto = consintioFoto,
+                            ocultarSeguidos = false,
+                            ocultarNovelasVistas = false
+                        )
+                        doc.set(perfil)
+                            .addOnSuccessListener {
+                                crearNotificacion(doc.id, "Bienvenido a Readwood, ${perfil.usuario}.")
+                                onSuccess(perfil)
+                            }
+                            .addOnFailureListener { onError(it.message ?: "Error al registrar") }
                     }
-                    .addOnFailureListener { onError(it.message ?: "Error al registrar") }
+                    .addOnFailureListener { onError(it.message ?: "Error al validar correo") }
             }
             .addOnFailureListener { onError(it.message ?: "Error de red") }
     }
@@ -108,6 +123,79 @@ object FirestoreService {
         }
     }
 
+    fun buscarUsuarios(
+        query: String,
+        onResult: (List<UsuarioPerfil>) -> Unit
+    ) {
+        colUsuarios.get().addOnSuccessListener { snap ->
+            val q = query.trim().lowercase()
+            val lista = snap.documents.mapNotNull { doc ->
+                doc.toObject(UsuarioPerfil::class.java)?.copy(id = doc.id)
+            }.filter { u ->
+                q.isEmpty() || u.usuario.lowercase().contains(q)
+            }
+            onResult(lista)
+        }
+    }
+
+    fun seguirODejarDeSeguirUsuario(
+        seguidor: UsuarioPerfil,
+        objetivo: UsuarioPerfil,
+        yaLoSigue: Boolean,
+        onDone: () -> Unit = {}
+    ) {
+        if (seguidor.id == objetivo.id) return
+        val docId = "${seguidor.id}_user_${objetivo.id}"
+        if (yaLoSigue) {
+            colUsuariosSeguidos.document(docId).delete().addOnSuccessListener { onDone() }
+        } else {
+            val rel = UsuarioSeguimiento(
+                id = docId,
+                seguidorId = seguidor.id,
+                seguidorNombre = seguidor.usuario,
+                seguidoId = objetivo.id,
+                seguidoNombre = objetivo.usuario
+            )
+            colUsuariosSeguidos.document(docId).set(rel).addOnSuccessListener {
+                crearNotificacion(objetivo.id, "${seguidor.usuario} comenzó a seguir tu perfil.")
+                onDone()
+            }
+        }
+    }
+
+    fun escucharUsuariosQueSigo(
+        usuarioId: String,
+        onUpdate: (List<UsuarioSeguimiento>) -> Unit
+    ): ListenerRegistration {
+        return colUsuariosSeguidos.whereEqualTo("seguidorId", usuarioId)
+            .addSnapshotListener { snap, _ ->
+                if (snap == null) return@addSnapshotListener
+                val lista = snap.documents.mapNotNull {
+                    it.toObject(UsuarioSeguimiento::class.java)?.copy(id = it.id)
+                }
+                onUpdate(lista)
+            }
+    }
+
+    fun obtenerActividadPublicaUsuario(
+        usuarioObjetivoId: String,
+        onResult: (usuariosSeguidos: List<UsuarioSeguimiento>, novelasVistas: List<SeguimientoRelacion>) -> Unit
+    ) {
+        colUsuariosSeguidos.whereEqualTo("seguidorId", usuarioObjetivoId).get()
+            .addOnSuccessListener { snapUsers ->
+                val usersList = snapUsers.documents.mapNotNull {
+                    it.toObject(UsuarioSeguimiento::class.java)?.copy(id = it.id)
+                }
+                colSeguimientos.whereEqualTo("usuarioId", usuarioObjetivoId).get()
+                    .addOnSuccessListener { snapNovelas ->
+                        val novList = snapNovelas.documents.mapNotNull {
+                            it.toObject(SeguimientoRelacion::class.java)?.copy(id = it.id)
+                        }.filter { !it.oculta } // Respeta novelas ocultas individualmente
+                        onResult(usersList, novList)
+                    }
+            }
+    }
+
     fun actualizarFotoPerfil(usuarioId: String, fotoBase64: String, consintio: Boolean) {
         colUsuarios.document(usuarioId).update(
             mapOf("fotoBase64" to fotoBase64, "consintioFoto" to consintio)
@@ -117,15 +205,20 @@ object FirestoreService {
     fun actualizarRedesUsuario(usuarioId: String, instagram: String, twitter: String, consintio: Boolean) {
         colUsuarios.document(usuarioId).update(
             mapOf(
-                "redInstagram" to instagram.trim(),
-                "redTwitter" to twitter.trim(),
+                "redInstagram" to ProfanityFilter.censurar(instagram.trim()),
+                "redTwitter" to ProfanityFilter.censurar(twitter.trim()),
                 "consintioRedes" to consintio
             )
         )
     }
 
-    fun actualizarPrivacidadSeguidos(usuarioId: String, ocultar: Boolean) {
-        colUsuarios.document(usuarioId).update("ocultarSeguidos", ocultar)
+    fun actualizarPrivacidadSeguidos(usuarioId: String, ocultarUsuarios: Boolean, ocultarNovelas: Boolean) {
+        colUsuarios.document(usuarioId).update(
+            mapOf(
+                "ocultarSeguidos" to ocultarUsuarios,
+                "ocultarNovelasVistas" to ocultarNovelas
+            )
+        )
     }
 
     fun escucharNovelas(
@@ -150,8 +243,20 @@ object FirestoreService {
 
     fun guardarNovela(novela: Novela, onSuccess: () -> Unit, onFailure: (Exception) -> Unit) {
         val doc = if (novela.id.isEmpty()) colNovelas.document() else colNovelas.document(novela.id)
-        val novelaConId = novela.copy(id = doc.id)
-        doc.set(novelaConId)
+        val novelaCensurada = novela.copy(
+            id = doc.id,
+            titulo = ProfanityFilter.censurar(novela.titulo),
+            sinopsis = ProfanityFilter.censurar(novela.sinopsis),
+            categoria = ProfanityFilter.censurar(novela.categoria),
+            etiquetas = novela.etiquetas.map { ProfanityFilter.censurar(it) },
+            capitulos = novela.capitulos.map { cap ->
+                cap.copy(
+                    titulo = ProfanityFilter.censurar(cap.titulo),
+                    contenido = ProfanityFilter.censurar(cap.contenido)
+                )
+            }
+        )
+        doc.set(novelaCensurada)
             .addOnSuccessListener { onSuccess() }
             .addOnFailureListener(onFailure)
     }
@@ -160,12 +265,38 @@ object FirestoreService {
         colNovelas.document(novelaId).delete().addOnSuccessListener { onSuccess() }
     }
 
-    fun registrarVotoNovela(novela: Novela, esLike: Boolean) {
-        val campo = if (esLike) "meGusta" else "noMeGusta"
-        colNovelas.document(novela.id).update(campo, FieldValue.increment(1))
+    fun registrarReaccionCapitulo(
+        novela: Novela,
+        capituloId: String,
+        tipo: String
+    ) {
+        val nuevosCapitulos = novela.capitulos.map { cap ->
+            if (cap.id == capituloId) {
+                when (tipo) {
+                    "CORAZON" -> cap.copy(corazones = cap.corazones + 1)
+                    "LIKE" -> cap.copy(meGusta = cap.meGusta + 1)
+                    "DISLIKE" -> cap.copy(noMeGusta = cap.noMeGusta + 1)
+                    else -> cap
+                }
+            } else cap
+        }
+
+        val nuevoCorazones = novela.corazones + if (tipo == "CORAZON") 1 else 0
+        val nuevoLikes = novela.meGusta + if (tipo == "LIKE") 1 else 0
+        val nuevoDislikes = novela.noMeGusta + if (tipo == "DISLIKE") 1 else 0
+
+        colNovelas.document(novela.id).update(
+            mapOf(
+                "capitulos" to nuevosCapitulos,
+                "corazones" to nuevoCorazones,
+                "meGusta" to nuevoLikes,
+                "noMeGusta" to nuevoDislikes
+            )
+        )
     }
 
-    fun incrementarVistaNovela(novela: Novela) {
+    fun incrementarVistaNovela(novela: Novela, lectorId: String) {
+        if (novela.autorId == lectorId) return
         colNovelas.document(novela.id).update("vistas", FieldValue.increment(1))
     }
 
@@ -189,6 +320,8 @@ object FirestoreService {
         ocultarDeOtros: Boolean = false,
         onSuccess: () -> Unit = {}
     ) {
+        if (usuario.id == novela.autorId) return
+
         val docId = "${usuario.id}_${novela.id}"
         val rel = SeguimientoRelacion(
             id = docId,
@@ -254,6 +387,7 @@ object FirestoreService {
         texto: String
     ) {
         if (texto.isBlank()) return
+        val textoCensurado = ProfanityFilter.censurar(texto.trim())
         val doc = colComentarios.document()
         val item = ComentarioItem(
             id = doc.id,
@@ -261,14 +395,43 @@ object FirestoreService {
             capituloId = capituloId,
             usuarioId = usuario.id,
             usuarioNombre = usuario.usuario,
-            texto = texto.trim()
+            texto = textoCensurado
         )
         doc.set(item).addOnSuccessListener {
-            colNovelas.document(novela.id).update("totalComentarios", FieldValue.increment(1))
+            val nuevosCaps = novela.capitulos.map { cap ->
+                if (cap.id == capituloId) cap.copy(comentariosCount = cap.comentariosCount + 1) else cap
+            }
+            colNovelas.document(novela.id).update(
+                mapOf(
+                    "totalComentarios" to FieldValue.increment(1),
+                    "capitulos" to nuevosCaps
+                )
+            )
             if (novela.autorId.isNotEmpty() && novela.autorId != usuario.id) {
-                crearNotificacion(novela.autorId, "${usuario.usuario} comentó en '${novela.titulo}': \"${texto.take(30)}...\"")
+                crearNotificacion(novela.autorId, "${usuario.usuario} comentó en '${novela.titulo}': \"${textoCensurado.take(30)}...\"")
             }
         }
+    }
+
+    fun enviarReporte(
+        reportante: UsuarioPerfil,
+        tipoObjetivo: String,
+        objetivoId: String,
+        objetivoNombre: String,
+        motivo: String,
+        onSuccess: () -> Unit = {}
+    ) {
+        val doc = colReportes.document()
+        val reporte = ReporteItem(
+            id = doc.id,
+            reportadoPorId = reportante.id,
+            reportadoPorNombre = reportante.usuario,
+            tipoObjetivo = tipoObjetivo,
+            objetivoId = objetivoId,
+            objetivoNombre = objetivoNombre,
+            motivo = ProfanityFilter.censurar(motivo.trim().ifEmpty { "Contenido inapropiado" })
+        )
+        doc.set(reporte).addOnSuccessListener { onSuccess() }
     }
 
     fun crearNotificacion(usuarioId: String, mensaje: String) {

@@ -63,6 +63,7 @@ fun MainAppNavigation(
 
     var novelasFirebase by remember { mutableStateOf<List<Novela>>(emptyList()) }
     var seguimientosUsuario by remember { mutableStateOf<List<SeguimientoRelacion>>(emptyList()) }
+    var usuariosQueSigo by remember { mutableStateOf<List<UsuarioSeguimiento>>(emptyList()) }
     var notificacionesActivas by remember { mutableStateOf<List<NotificacionItem>>(emptyList()) }
 
     DisposableEffect(usuarioActual?.id) {
@@ -75,12 +76,14 @@ fun MainAppNavigation(
         }
         val regNovelas = FirestoreService.escucharNovelas(uid) { novelasFirebase = it }
         val regSeguidos = FirestoreService.escucharSeguimientosUsuario(uid) { seguimientosUsuario = it }
+        val regUsersSeguidos = FirestoreService.escucharUsuariosQueSigo(uid) { usuariosQueSigo = it }
         val regNotifs = FirestoreService.escucharNotificacionesActivas(uid) { notificacionesActivas = it }
 
         onDispose {
             regPerfil.remove()
             regNovelas.remove()
             regSeguidos.remove()
+            regUsersSeguidos.remove()
             regNotifs.remove()
         }
     }
@@ -117,6 +120,7 @@ fun MainAppNavigation(
                     novela = novelaActiva,
                     indiceCapituloInicial = capituloLecturaIndex!!,
                     seguimientos = seguimientosUsuario,
+                    modoOscuroApp = modoOscuro,
                     onVolver = { capituloLecturaIndex = null }
                 )
                 novelaActiva != null -> DetalleNovelaScreen(
@@ -128,7 +132,7 @@ fun MainAppNavigation(
                 )
                 else -> Scaffold(
                     bottomBar = {
-                        NavigationBar(containerColor = colors.cardBg, tonalElevation = 8.dp) {
+                        NavigationBar(containerColor = colors.cardBg, tonalElevation = 2.dp) {
                             NavigationBarItem(
                                 selected = seccionActual == "HOME",
                                 onClick = { seccionActual = "HOME" },
@@ -162,6 +166,7 @@ fun MainAppNavigation(
                                 usuario = user,
                                 novelas = novelasFirebase,
                                 seguimientos = seguimientosUsuario,
+                                usuariosQueSigo = usuariosQueSigo,
                                 notificacionesSinLeer = notificacionesActivas.count { !it.leida },
                                 onAbrirNotificaciones = { viendoNotificaciones = true },
                                 onSeleccionarNovela = { novelaDetalle = it }
@@ -169,6 +174,7 @@ fun MainAppNavigation(
                             "BIBLIOTECA" -> BibliotecaScreen(
                                 novelas = novelasFirebase,
                                 seguimientos = seguimientosUsuario,
+                                usuariosQueSigo = usuariosQueSigo,
                                 onSeleccionarNovela = { novelaDetalle = it }
                             )
                             "ESCRITURA" -> EditorScreen(
@@ -180,6 +186,7 @@ fun MainAppNavigation(
                                 usuario = user,
                                 misNovelas = misNovelas,
                                 seguimientos = seguimientosUsuario,
+                                usuariosQueSigo = usuariosQueSigo,
                                 modoOscuro = modoOscuro,
                                 onToggleModoOscuro = onToggleModoOscuro,
                                 onCerrarSesion = {

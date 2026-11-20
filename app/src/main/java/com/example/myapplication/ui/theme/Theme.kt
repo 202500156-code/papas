@@ -8,34 +8,31 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-data class ReadwoodPalette(
+data class ReadwoodColorPalette(
     val bg: Color,
     val cardBg: Color,
     val purple: Color,
     val textDark: Color,
     val textMuted: Color,
-    val border: Color,
-    val isDark: Boolean
+    val border: Color
 )
 
-val LightReadwoodPalette = ReadwoodPalette(
-    bg = Color(0xFFF8F3ED),
-    cardBg = Color(0xFFF0EAE1),
-    purple = Color(0xFF6B3A50),
-    textDark = Color(0xFF2D2329),
-    textMuted = Color(0xFF8A7E85),
-    border = Color(0xFFE0D7CD),
-    isDark = false
+val LightReadwoodPalette = ReadwoodColorPalette(
+    bg = Color(0xFFF7F3EB),       // Papel crema cálido
+    cardBg = Color(0xFFEFE9DD),   // Lino suave
+    purple = Color(0xFF5E2D40),   // Borgoña editorial
+    textDark = Color(0xFF1F1C1A), // Tinta carbón
+    textMuted = Color(0xFF6B625B),// Gris piedra cálido
+    border = Color(0xFFD8CFC2)    // Filete de papel
 )
 
-val DarkReadwoodPalette = ReadwoodPalette(
-    bg = Color(0xFF161215),
-    cardBg = Color(0xFF231D21),
-    purple = Color(0xFFC47D9B),
-    textDark = Color(0xFFF4EDE6),
-    textMuted = Color(0xFFA3989E),
-    border = Color(0xFF382F35),
-    isDark = true
+val DarkReadwoodPalette = ReadwoodColorPalette(
+    bg = Color(0xFF161413),       // Tinta nocturna
+    cardBg = Color(0xFF211E1C),   // Carbón suave
+    purple = Color(0xFFD48CA6),   // Rosa antiguo legible
+    textDark = Color(0xFFEDE7DF), // Papel marfil
+    textMuted = Color(0xFF9E958C),// Ceniza cálida
+    border = Color(0xFF332E2B)    // Borde sutil
 )
 
 val LocalReadwoodColors = staticCompositionLocalOf { LightReadwoodPalette }
@@ -46,7 +43,7 @@ fun ReadwoodTheme(
     content: @Composable () -> Unit
 ) {
     val palette = if (darkTheme) DarkReadwoodPalette else LightReadwoodPalette
-    val colorScheme = if (darkTheme) {
+    val materialScheme = if (darkTheme) {
         darkColorScheme(
             primary = palette.purple,
             background = palette.bg,
@@ -65,6 +62,9 @@ fun ReadwoodTheme(
     }
 
     CompositionLocalProvider(LocalReadwoodColors provides palette) {
-        MaterialTheme(colorScheme = colorScheme, content = content)
+        MaterialTheme(
+            colorScheme = materialScheme,
+            content = content
+        )
     }
 }
