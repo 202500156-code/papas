@@ -412,7 +412,6 @@ object FirestoreService {
                 "titulo" to c.titulo,
                 "contenido" to c.contenido,
                 "esBorrador" to c.esBorrador,
-                "estaTerminada" to novela.estaTerminada,
                 "corazones" to c.corazones,
                 "meGusta" to c.meGusta,
                 "noMeGusta" to c.noMeGusta,
@@ -437,6 +436,7 @@ object FirestoreService {
             "portadaColorHex" to novela.portadaColorHex,
             "esPublicada" to novela.esPublicada,
             "fechaPublicacionProgramada" to novela.fechaPublicacionProgramada,
+            "estaTerminada" to novela.estaTerminada,
             "capitulos" to capsMap
         )
 

@@ -247,11 +247,6 @@ fun EscribirScreen(
                 minLines = 12
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = capituloComoBorrador, onCheckedChange = { capituloComoBorrador = it })
-                Text("Guardar este capítulo como borrador privado", fontSize = 13.sp, color = colors.textDark)
-            }
-
             if (mensajeCap.isNotEmpty()) {
                 Text(mensajeCap, color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
@@ -271,6 +266,7 @@ fun EscribirScreen(
                         if (contenidoCapitulo.isBlank()) {
                             mensajeCap = "Escribe el contenido antes de publicar."
                         } else {
+                            capituloComoBorrador = false
                             mostrarDialogoPubCap = true
                         }
                     },
@@ -296,6 +292,10 @@ fun EscribirScreen(
         val portadaBmp = remember(novelaAbierta.portadaBase64) {
             ImageUtils.base64ToImageBitmap(novelaAbierta.portadaBase64)
         }
+        var estaTerminadaLocal by remember(novelaAbierta.id, novelaAbierta.estaTerminada) {
+            mutableStateOf(novelaAbierta.estaTerminada)
+        }
+        var mensajeEstadoObra by remember { mutableStateOf("") }
 
         Column(
             modifier = Modifier
@@ -357,36 +357,51 @@ fun EscribirScreen(
                 border = BorderStroke(0.8.dp, colors.border),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (novelaAbierta.estaTerminada) "Obra Terminada" else "Obra en Emisión",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = colors.textDark
-                        )
-                        Text(
-                            text = "Indica a tus lectores si la historia ya concluyó",
-                            fontSize = 11.sp,
-                            color = colors.textMuted
-                        )
-                    }
-                    Switch(
-                        checked = novelaAbierta.estaTerminada,
-                        onCheckedChange = { terminada ->
-                            FirestoreService.guardarNovela(
-                                novela = novelaAbierta.copy(estaTerminada = terminada),
-                                onSuccess = {},
-                                onFailure = {}
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (estaTerminadaLocal) "✓ Obra Terminada" else "⏳ Obra en Emisión",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = if (estaTerminadaLocal) Color(0xFF2E7D32) else colors.textDark
+                            )
+                            Text(
+                                text = "Indica a tus lectores si la historia ya concluyó",
+                                fontSize = 11.sp,
+                                color = colors.textMuted
                             )
                         }
-                    )
+                        Switch(
+                            checked = estaTerminadaLocal,
+                            onCheckedChange = { terminada ->
+                                estaTerminadaLocal = terminada
+                                FirestoreService.guardarNovela(
+                                    novela = novelaAbierta.copy(estaTerminada = terminada),
+                                    onSuccess = { mensajeEstadoObra = "" },
+                                    onFailure = {
+                                        estaTerminadaLocal = !terminada
+                                        mensajeEstadoObra = "Error al guardar estado: ${it.message}"
+                                    }
+                                )
+                            }
+                        )
+                    }
+                    if (mensajeEstadoObra.isNotEmpty()) {
+                        Text(
+                            text = mensajeEstadoObra,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
 
@@ -470,13 +485,14 @@ fun EscribirScreen(
     }
 
     // VISTA 4: CREAR NUEVA NOVELA (Datos, Género con +, Etiquetas con +, y botón Escribir)
+    // VISTA 4: CREAR NUEVA NOVELA
     if (creandoNuevaNovela) {
         BackHandler { creandoNuevaNovela = false }
 
         var tituloNovela by remember { mutableStateOf("") }
         var sinopsis by remember { mutableStateOf("") }
-        var generoPrincipal by remember { mutableStateOf("Fantasía") }
-        var generoExtra by remember { mutableStateOf("") }
+        var generosSeleccionados by remember { mutableStateOf(emptyList<String>()) }
+        var generoExtraInput by remember { mutableStateOf("") }
         var mostrarCampoGeneroExtra by remember { mutableStateOf(false) }
 
         var nuevaEtiquetaInput by remember { mutableStateOf("") }
@@ -512,7 +528,36 @@ fun EscribirScreen(
             )
         }
 
-        val generos = listOf("Fantasía", "Romance", "Misterio", "Terror", "Ciencia Ficción")
+        val generos = listOf(
+            "Fantasía",
+            "Romance",
+            "Misterio",
+            "Suspenso / Thriller",
+            "Terror / Horror",
+            "Ciencia Ficción",
+            "Aventura",
+            "Drama",
+            "Juvenil (YA)",
+            "New Adult",
+            "Ficción Histórica",
+            "Paranormal",
+            "Fanfiction",
+            "Humor / Comedia",
+            "Ficción Contemporánea",
+            "Policiaco / Noir",
+            "Mitología y Folclore",
+            "Steampunk",
+            "Western",
+            "Realismo Mágico",
+            "Poesía",
+            "Relato Corto",
+            "Crónica / Ensayo",
+            "Biografía / Memorias",
+            "Teatro / Guion"
+        )
+        val generosDisponibles = generos.filter { gen ->
+            generosSeleccionados.none { it.equals(gen, ignoreCase = true) }
+        }
         val coloresPortada = listOf("#5E2D40", "#1E3A5F", "#2E4A3E", "#4A2C5E", "#7A3B2E", "#2C2C2C")
         val portadaPreviewBmp = remember(portadaBase64) { ImageUtils.base64ToImageBitmap(portadaBase64) }
 
@@ -532,6 +577,7 @@ fun EscribirScreen(
             Text("Nueva Novela", fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
             Spacer(modifier = Modifier.height(10.dp))
 
+            // PORTADA
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PortadaConTextoSuperpuesto(
                     titulo = tituloNovela.ifBlank { "Tu Título" },
@@ -578,6 +624,7 @@ fun EscribirScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // 1. TÍTULO Y SINOPSIS ARRIBA
             OutlinedTextField(
                 value = tituloNovela,
                 onValueChange = { tituloNovela = it },
@@ -595,69 +642,204 @@ fun EscribirScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // GÉNERO PRINCIPAL + BOTÓN "+" PARA GÉNERO EXTRA
-            Text(
-                text = "Género",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textDark
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // 2. RECTÁNGULO DE GÉNEROS SELECCIONADOS + LISTA DE GÉNEROS + BOTÓN "+"
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                items(generos) { gen ->
-                    val sel = generoPrincipal == gen
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (sel) colors.purple else colors.cardBg,
-                        border = BorderStroke(0.8.dp, if (sel) colors.purple else colors.border),
-                        modifier = Modifier.clickable { generoPrincipal = gen }
+                Text(
+                    text = "Selecciona Géneros",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textDark
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (mostrarCampoGeneroExtra) colors.purple else colors.cardBg,
+                    border = BorderStroke(1.dp, colors.purple),
+                    modifier = Modifier.clickable {
+                        mostrarCampoGeneroExtra = !mostrarCampoGeneroExtra
+                        if (!mostrarCampoGeneroExtra) generoExtraInput = ""
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
+                        Icon(
+                            imageVector = if (mostrarCampoGeneroExtra) Icons.Outlined.Close else Icons.Outlined.Add,
+                            contentDescription = if (mostrarCampoGeneroExtra) "Cerrar género extra" else "Agregar otro género",
+                            tint = if (mostrarCampoGeneroExtra) Color.White else colors.purple,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Text(
-                            text = gen,
-                            fontSize = 12.sp,
-                            color = if (sel) Color.White else colors.textDark,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            text = if (mostrarCampoGeneroExtra) "Cerrar" else "Otro género",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (mostrarCampoGeneroExtra) Color.White else colors.purple
                         )
                     }
                 }
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (mostrarCampoGeneroExtra) colors.purple else colors.cardBg,
-                        border = BorderStroke(1.dp, colors.purple),
-                        modifier = Modifier.clickable {
-                            mostrarCampoGeneroExtra = !mostrarCampoGeneroExtra
-                            if (!mostrarCampoGeneroExtra) generoExtra = ""
-                        }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Rectángulo superior con los géneros seleccionados
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colors.cardBg,
+                border = BorderStroke(1.2.dp, colors.purple),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp)
+            ) {
+                if (generosSeleccionados.isEmpty()) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Add,
-                            contentDescription = "Agregar género extra",
-                            tint = if (mostrarCampoGeneroExtra) Color.White else colors.purple,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp).size(18.dp)
+                        Text(
+                            text = "Toca un género de la lista o agrega uno con +",
+                            fontSize = 12.sp,
+                            color = colors.textMuted
                         )
+                    }
+                } else {
+                    LazyRow(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(generosSeleccionados) { genSel ->
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = colors.purple.copy(alpha = 0.18f),
+                                border = BorderStroke(0.8.dp, colors.purple),
+                                modifier = Modifier.clickable {
+                                    generosSeleccionados = generosSeleccionados.filter { it != genSel }
+                                }
+                            ) {
+                                Text(
+                                    text = "$genSel  ✕",
+                                    fontSize = 12.sp,
+                                    color = colors.purple,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             if (mostrarCampoGeneroExtra) {
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = generoExtra,
-                    onValueChange = { generoExtra = it },
-                    label = { Text("Género extra (ej. Aventura, Drama)") },
-                    singleLine = true,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    OutlinedTextField(
+                        value = generoExtraInput,
+                        onValueChange = { generoExtraInput = it },
+                        label = { Text("Escribe otro género") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = colors.purple,
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clickable {
+                                val limpio = generoExtraInput.trim()
+                                if (limpio.isNotEmpty() && generosSeleccionados.none { it.equals(limpio, ignoreCase = true) }) {
+                                    generosSeleccionados = generosSeleccionados + limpio
+                                }
+                                generoExtraInput = ""
+                                mostrarCampoGeneroExtra = false
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = "Confirmar género extra",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = colors.cardBg,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clickable {
+                                generoExtraInput = ""
+                                mostrarCampoGeneroExtra = false
+                            }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Cancelar género extra",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Lista de todos los géneros disponibles (al tocar uno sube al rectángulo y desaparece de aquí)
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colors.cardBg,
+                border = BorderStroke(0.8.dp, colors.border),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 175.dp)
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(generosDisponibles) { gen ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    generosSeleccionados = generosSeleccionados + gen
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = gen,
+                                fontSize = 13.sp,
+                                color = colors.textDark
+                            )
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = "Agregar $gen",
+                                tint = colors.purple,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ETIQUETAS CON BOTÓN "+"
+            // 3. ETIQUETAS CON RECTÁNGULO Y BOTÓN "+"
             Text(
                 text = "Etiquetas",
                 fontSize = 13.sp,
@@ -674,7 +856,7 @@ fun EscribirScreen(
                 OutlinedTextField(
                     value = nuevaEtiquetaInput,
                     onValueChange = { nuevaEtiquetaInput = it },
-                    label = { Text("Agregar etiqueta") },
+                    label = { Text("Añadir etiquetas") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -704,23 +886,33 @@ fun EscribirScreen(
 
             if (listaEtiquetas.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(listaEtiquetas) { tag ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = colors.purple.copy(alpha = 0.14f),
-                            border = BorderStroke(0.8.dp, colors.purple),
-                            modifier = Modifier.clickable {
-                                listaEtiquetas = listaEtiquetas.filter { it != tag }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colors.cardBg,
+                    border = BorderStroke(0.8.dp, colors.border),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    LazyRow(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(listaEtiquetas) { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = colors.purple.copy(alpha = 0.14f),
+                                border = BorderStroke(0.8.dp, colors.purple),
+                                modifier = Modifier.clickable {
+                                    listaEtiquetas = listaEtiquetas.filter { it != tag }
+                                }
+                            ) {
+                                Text(
+                                    text = "#$tag  ✕",
+                                    fontSize = 12.sp,
+                                    color = colors.purple,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
                             }
-                        ) {
-                            Text(
-                                text = "#$tag  ✕",
-                                fontSize = 12.sp,
-                                color = colors.purple,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
                         }
                     }
                 }
@@ -733,7 +925,7 @@ fun EscribirScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // BOTÓN ESCRIBIR (Guarda los datos de la novela y manda directo a escribir el Capítulo 1)
+            // 4. BOTÓN ESCRIBIR (Manda directo al editor del Capítulo 1)
             Button(
                 onClick = {
                     if (tituloNovela.isBlank()) {
@@ -748,10 +940,17 @@ fun EscribirScreen(
                         listaEtiquetas
                     }
 
-                    val categoriaFinal = if (generoExtra.trim().isNotEmpty()) {
-                        "$generoPrincipal • ${generoExtra.trim()}"
+                    val genExtraPendiente = generoExtraInput.trim()
+                    val listaGenerosFinal = if (genExtraPendiente.isNotEmpty() && generosSeleccionados.none { it.equals(genExtraPendiente, ignoreCase = true) }) {
+                        generosSeleccionados + genExtraPendiente
                     } else {
-                        generoPrincipal
+                        generosSeleccionados
+                    }
+
+                    val categoriaFinal = if (listaGenerosFinal.isEmpty()) {
+                        "General"
+                    } else {
+                        listaGenerosFinal.joinToString(" • ")
                     }
 
                     val nueva = Novela(
