@@ -68,6 +68,7 @@ data class Novela(
     val portadaColorHex: String = "#5E2D40",
     val esPublicada: Boolean = true,
     val fechaPublicacionProgramada: Long = 0L,
+    val estaTerminada: Boolean = false,
     val corazones: Int = 0,
     val meGusta: Int = 0,
     val noMeGusta: Int = 0,

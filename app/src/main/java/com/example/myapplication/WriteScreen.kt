@@ -51,7 +51,7 @@ fun EscribirScreen(
 
     val novelaAbierta = misNovelas.find { it.id == novelaAbiertaId }
 
-    // VISTA 3: EDITOR DIRECTO DE CAPÍTULO
+    // VISTA 3: EDITOR DIRECTO DE CAPÍTULO (Aquí se escribe y se elige Publicar o Borrador)
     if (novelaAbierta != null && editandoCapituloIndice != null) {
         val esNuevoCap = editandoCapituloIndice == -1
         val capExistente = if (!esNuevoCap) novelaAbierta.capitulos.getOrNull(editandoCapituloIndice!!) else null
@@ -144,6 +144,7 @@ fun EscribirScreen(
 
                         Button(
                             onClick = {
+                                capituloComoBorrador = false
                                 mostrarDialogoPubCap = false
                                 guardarCapituloEnNovela(publicarNovela = true, fechaProgramada = 0L)
                             },
@@ -177,6 +178,7 @@ fun EscribirScreen(
                                                     set(year, month, day, hour, minute, 0)
                                                 }.timeInMillis
                                                 if (elegida > System.currentTimeMillis()) {
+                                                    capituloComoBorrador = false
                                                     mostrarDialogoPubCap = false
                                                     guardarCapituloEnNovela(publicarNovela = false, fechaProgramada = elegida)
                                                 } else {
@@ -242,7 +244,7 @@ fun EscribirScreen(
                 onValueChange = { contenidoCapitulo = it },
                 label = { Text("Contenido del capítulo...") },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 11
+                minLines = 12
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -348,6 +350,46 @@ fun EscribirScreen(
             Spacer(modifier = Modifier.height(12.dp))
             Text(novelaAbierta.sinopsis, fontSize = 14.sp, color = colors.textDark)
 
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                color = colors.cardBg,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(0.8.dp, colors.border),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (novelaAbierta.estaTerminada) "Obra Terminada" else "Obra en Emisión",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = colors.textDark
+                        )
+                        Text(
+                            text = "Indica a tus lectores si la historia ya concluyó",
+                            fontSize = 11.sp,
+                            color = colors.textMuted
+                        )
+                    }
+                    Switch(
+                        checked = novelaAbierta.estaTerminada,
+                        onCheckedChange = { terminada ->
+                            FirestoreService.guardarNovela(
+                                novela = novelaAbierta.copy(estaTerminada = terminada),
+                                onSuccess = {},
+                                onFailure = {}
+                            )
+                        }
+                    )
+                }
+            }
+
             if (novelaAbierta.etiquetas.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -360,7 +402,8 @@ fun EscribirScreen(
                             Text(
                                 text = "#$tag",
                                 fontSize = 11.sp,
-                                color = colors.textMuted,
+                                color = colors.purple,
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
@@ -426,23 +469,23 @@ fun EscribirScreen(
         return
     }
 
-    // VISTA 4: CREAR NUEVA NOVELA
+    // VISTA 4: CREAR NUEVA NOVELA (Datos, Género con +, Etiquetas con +, y botón Escribir)
     if (creandoNuevaNovela) {
         BackHandler { creandoNuevaNovela = false }
 
         var tituloNovela by remember { mutableStateOf("") }
         var sinopsis by remember { mutableStateOf("") }
-        var genero by remember { mutableStateOf("Fantasía") }
-        var etiquetasTexto by remember { mutableStateOf("") }
+        var generoPrincipal by remember { mutableStateOf("Fantasía") }
+        var generoExtra by remember { mutableStateOf("") }
+        var mostrarCampoGeneroExtra by remember { mutableStateOf(false) }
+
+        var nuevaEtiquetaInput by remember { mutableStateOf("") }
+        var listaEtiquetas by remember { mutableStateOf(listOf<String>()) }
+
         var portadaBase64 by remember { mutableStateOf("") }
         var colorPortadaHex by remember { mutableStateOf("#5E2D40") }
-        var tituloCapitulo1 by remember { mutableStateOf("") }
-        var contenidoCapitulo1 by remember { mutableStateOf("") }
-        var cap1Borrador by remember { mutableStateOf(false) }
         var mensajeEstado by remember { mutableStateOf("") }
         var uriPortadaPendiente by remember { mutableStateOf<Uri?>(null) }
-        var mostrarDialogoPublicacion by remember { mutableStateOf(false) }
-        var anuncioComunidad by remember { mutableStateOf("") }
 
         val selectorPortada = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) uriPortadaPendiente = uri
@@ -465,131 +508,6 @@ fun EscribirScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { uriPortadaPendiente = null }) { Text("Cancelar") }
-                }
-            )
-        }
-
-        fun guardarNuevaNovela(publicarAhora: Boolean, fechaProgramada: Long) {
-            if (tituloNovela.isBlank() || contenidoCapitulo1.isBlank()) {
-                mensajeEstado = "Escribe el título de la novela y el contenido del Capítulo 1."
-                return
-            }
-            val etiquetas = etiquetasTexto.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val cap1 = Capitulo(
-                id = UUID.randomUUID().toString(),
-                numero = 1,
-                titulo = tituloCapitulo1.trim().ifEmpty { "Capítulo 1" },
-                contenido = contenidoCapitulo1.trim(),
-                esBorrador = cap1Borrador
-            )
-
-            val nueva = Novela(
-                autorId = usuario.id,
-                autor = usuario.usuario,
-                titulo = tituloNovela.trim(),
-                sinopsis = sinopsis.trim().ifEmpty { "Sinopsis pendiente." },
-                categoria = genero,
-                etiquetas = etiquetas,
-                portadaBase64 = portadaBase64,
-                portadaColorHex = colorPortadaHex,
-                esPublicada = publicarAhora,
-                fechaPublicacionProgramada = if (!publicarAhora && fechaProgramada > 0L) fechaProgramada else 0L,
-                capitulos = listOf(cap1)
-            )
-
-            FirestoreService.guardarNovela(
-                novela = nueva,
-                onSuccess = { novelaGuardadaId ->
-                    if (!publicarAhora && fechaProgramada > System.currentTimeMillis()) {
-                        val formatoFecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(fechaProgramada))
-                        val textoAnuncio = anuncioComunidad.ifBlank {
-                            "¡Próximo estreno! Mi novela '${nueva.titulo}' se publicará el $formatoFecha."
-                        }
-                        FirestoreService.publicarEnComunidad(
-                            autor = usuario,
-                            mensaje = textoAnuncio,
-                            novelaProgramadaId = novelaGuardadaId,
-                            novelaProgramadaTitulo = nueva.titulo,
-                            fechaLanzamiento = fechaProgramada
-                        )
-                    }
-                    creandoNuevaNovela = false
-                },
-                onFailure = { mensajeEstado = "Error al guardar: ${it.message}" }
-            )
-        }
-
-        if (mostrarDialogoPublicacion) {
-            AlertDialog(
-                onDismissRequest = { mostrarDialogoPublicacion = false },
-                containerColor = colors.cardBg,
-                title = { Text("Opciones de Publicación", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = colors.textDark) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("¿Cómo deseas publicar \"${tituloNovela.ifBlank { "tu novela" }}\"?", fontSize = 13.sp, color = colors.textDark)
-
-                        Button(
-                            onClick = {
-                                mostrarDialogoPublicacion = false
-                                guardarNuevaNovela(publicarAhora = true, fechaProgramada = 0L)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("🚀 Publicar ahora", color = Color.White, fontWeight = FontWeight.Bold)
-                        }
-
-                        HorizontalDivider(color = colors.border)
-
-                        Text("O programar lanzamiento con contador en Comunidad:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.purple)
-                        OutlinedTextField(
-                            value = anuncioComunidad,
-                            onValueChange = { anuncioComunidad = it },
-                            placeholder = { Text("Mensaje opcional para tus lectores...", fontSize = 12.sp) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedButton(
-                            onClick = {
-                                val cal = Calendar.getInstance()
-                                DatePickerDialog(
-                                    context,
-                                    { _, year, month, day ->
-                                        TimePickerDialog(
-                                            context,
-                                            { _, hour, minute ->
-                                                val elegida = Calendar.getInstance().apply {
-                                                    set(year, month, day, hour, minute, 0)
-                                                }.timeInMillis
-                                                if (elegida > System.currentTimeMillis()) {
-                                                    mostrarDialogoPublicacion = false
-                                                    guardarNuevaNovela(publicarAhora = false, fechaProgramada = elegida)
-                                                } else {
-                                                    mensajeEstado = "Elige una fecha y hora futura."
-                                                }
-                                            },
-                                            cal.get(Calendar.HOUR_OF_DAY),
-                                            cal.get(Calendar.MINUTE),
-                                            true
-                                        ).show()
-                                    },
-                                    cal.get(Calendar.YEAR),
-                                    cal.get(Calendar.MONTH),
-                                    cal.get(Calendar.DAY_OF_MONTH)
-                                ).show()
-                            },
-                            border = BorderStroke(1.dp, colors.purple),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("⏳ Publicar a tal fecha y hora", color = colors.purple, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { mostrarDialogoPublicacion = false }) {
-                        Text("Cancelar", color = colors.purple)
-                    }
                 }
             )
         }
@@ -673,82 +591,201 @@ fun EscribirScreen(
                 onValueChange = { sinopsis = it },
                 label = { Text("Sinopsis") },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 2
+                minLines = 3
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // GÉNERO PRINCIPAL + BOTÓN "+" PARA GÉNERO EXTRA
+            Text(
+                text = "Género",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textDark
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 items(generos) { gen ->
-                    val sel = genero == gen
+                    val sel = generoPrincipal == gen
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = if (sel) colors.purple else colors.cardBg,
                         border = BorderStroke(0.8.dp, if (sel) colors.purple else colors.border),
-                        modifier = Modifier.clickable { genero = gen }
+                        modifier = Modifier.clickable { generoPrincipal = gen }
                     ) {
-                        Text(gen, fontSize = 12.sp, color = if (sel) Color.White else colors.textDark, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        Text(
+                            text = gen,
+                            fontSize = 12.sp,
+                            color = if (sel) Color.White else colors.textDark,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (mostrarCampoGeneroExtra) colors.purple else colors.cardBg,
+                        border = BorderStroke(1.dp, colors.purple),
+                        modifier = Modifier.clickable {
+                            mostrarCampoGeneroExtra = !mostrarCampoGeneroExtra
+                            if (!mostrarCampoGeneroExtra) generoExtra = ""
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "Agregar género extra",
+                            tint = if (mostrarCampoGeneroExtra) Color.White else colors.purple,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp).size(18.dp)
+                        )
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
-                value = etiquetasTexto,
-                onValueChange = { etiquetasTexto = it },
-                label = { Text("Etiquetas (separadas por coma)") },
+            if (mostrarCampoGeneroExtra) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = generoExtra,
+                    onValueChange = { generoExtra = it },
+                    label = { Text("Género extra (ej. Aventura, Drama)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ETIQUETAS CON BOTÓN "+"
+            Text(
+                text = "Etiquetas",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textDark
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
-            )
+            ) {
+                OutlinedTextField(
+                    value = nuevaEtiquetaInput,
+                    onValueChange = { nuevaEtiquetaInput = it },
+                    label = { Text("Agregar etiqueta") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colors.purple,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clickable {
+                            val limpia = nuevaEtiquetaInput.trim().removePrefix("#")
+                            if (limpia.isNotEmpty() && listaEtiquetas.none { it.equals(limpia, ignoreCase = true) }) {
+                                listaEtiquetas = listaEtiquetas + limpia
+                            }
+                            nuevaEtiquetaInput = ""
+                        }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "Añadir etiqueta",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
 
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(color = colors.border)
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = tituloCapitulo1,
-                onValueChange = { tituloCapitulo1 = it },
-                label = { Text("Título del Capítulo 1") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = contenidoCapitulo1,
-                onValueChange = { contenidoCapitulo1 = it },
-                label = { Text("Contenido del capítulo...") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 7
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = cap1Borrador, onCheckedChange = { cap1Borrador = it })
-                Text("Guardar como borrador privado", fontSize = 13.sp, color = colors.textDark)
+            if (listaEtiquetas.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(listaEtiquetas) { tag ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colors.purple.copy(alpha = 0.14f),
+                            border = BorderStroke(0.8.dp, colors.purple),
+                            modifier = Modifier.clickable {
+                                listaEtiquetas = listaEtiquetas.filter { it != tag }
+                            }
+                        ) {
+                            Text(
+                                text = "#$tag  ✕",
+                                fontSize = 12.sp,
+                                color = colors.purple,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             if (mensajeEstado.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(mensajeEstado, color = colors.purple, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { guardarNuevaNovela(publicarAhora = false, fechaProgramada = 0L) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Guardar Borrador", color = colors.purple, fontSize = 12.sp)
-                }
-                Button(
-                    onClick = {
-                        if (tituloNovela.isBlank() || contenidoCapitulo1.isBlank()) {
-                            mensajeEstado = "Completa el título y contenido antes de publicar."
-                        } else {
-                            mostrarDialogoPublicacion = true
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Publicar", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // BOTÓN ESCRIBIR (Guarda los datos de la novela y manda directo a escribir el Capítulo 1)
+            Button(
+                onClick = {
+                    if (tituloNovela.isBlank()) {
+                        mensajeEstado = "Escribe primero el título de la novela."
+                        return@Button
+                    }
+
+                    val tagPendiente = nuevaEtiquetaInput.trim().removePrefix("#")
+                    val etiquetasFinales = if (tagPendiente.isNotEmpty() && listaEtiquetas.none { it.equals(tagPendiente, ignoreCase = true) }) {
+                        listaEtiquetas + tagPendiente
+                    } else {
+                        listaEtiquetas
+                    }
+
+                    val categoriaFinal = if (generoExtra.trim().isNotEmpty()) {
+                        "$generoPrincipal • ${generoExtra.trim()}"
+                    } else {
+                        generoPrincipal
+                    }
+
+                    val nueva = Novela(
+                        autorId = usuario.id,
+                        autor = usuario.usuario,
+                        titulo = tituloNovela.trim(),
+                        sinopsis = sinopsis.trim().ifEmpty { "Sinopsis pendiente." },
+                        categoria = categoriaFinal,
+                        etiquetas = etiquetasFinales,
+                        portadaBase64 = portadaBase64,
+                        portadaColorHex = colorPortadaHex,
+                        esPublicada = false,
+                        capitulos = emptyList()
+                    )
+
+                    FirestoreService.guardarNovela(
+                        novela = nueva,
+                        onSuccess = { novelaGuardadaId ->
+                            creandoNuevaNovela = false
+                            novelaAbiertaId = novelaGuardadaId
+                            editandoCapituloIndice = -1
+                        },
+                        onFailure = { mensajeEstado = "Error al crear novela: ${it.message}" }
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Icon(Icons.Outlined.Edit, contentDescription = null, tint = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Escribir", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(36.dp))

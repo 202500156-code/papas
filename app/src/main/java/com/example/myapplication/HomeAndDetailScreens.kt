@@ -545,6 +545,23 @@ fun HomeScreen(
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(novela.categoria.uppercase(), fontSize = 10.sp, color = colors.purple, fontWeight = FontWeight.Bold)
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (novela.estaTerminada) Color(0xFF2E7D32).copy(alpha = 0.14f) else colors.purple.copy(alpha = 0.14f),
+                                        border = BorderStroke(
+                                            width = 0.8.dp,
+                                            color = if (novela.estaTerminada) Color(0xFF2E7D32) else colors.purple
+                                        ),
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = if (novela.estaTerminada) "✓ TERMINADA" else "⏳ EN EMISIÓN",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (novela.estaTerminada) Color(0xFF2E7D32) else colors.purple,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
                                     Text(novela.titulo, fontFamily = FontFamily.Serif, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
                                     Text(
                                         text = "Por ${novela.autor}",
@@ -1697,6 +1714,23 @@ fun DetalleNovelaScreen(
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(novela.categoria.uppercase(), fontSize = 11.sp, color = colors.purple, fontWeight = FontWeight.Bold)
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (novela.estaTerminada) Color(0xFF2E7D32).copy(alpha = 0.14f) else colors.purple.copy(alpha = 0.14f),
+                    border = BorderStroke(
+                        width = 0.8.dp,
+                        color = if (novela.estaTerminada) Color(0xFF2E7D32) else colors.purple
+                    ),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                ) {
+                    Text(
+                        text = if (novela.estaTerminada) "✓ TERMINADA" else "⏳ EN EMISIÓN",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (novela.estaTerminada) Color(0xFF2E7D32) else colors.purple,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
                 Text(novela.titulo, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
                 Text(
                     text = "Por ${novela.autor} (Ver perfil)",
@@ -1915,7 +1949,6 @@ fun DetalleNovelaScreen(
         Spacer(modifier = Modifier.height(40.dp))
     }
 }
-
 @Composable
 fun LecturaScreen(
     usuario: UsuarioPerfil,
