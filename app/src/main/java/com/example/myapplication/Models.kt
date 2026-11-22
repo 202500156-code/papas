@@ -4,15 +4,16 @@ data class UsuarioPerfil(
     val id: String = "",
     val usuario: String = "",
     val correo: String = "",
+    val mostrarCorreoPublico: Boolean = false,
     val passwordHash: String = "",
     val salt: String = "",
     val fotoBase64: String = "",
     val consintioFoto: Boolean = false,
-    val redInstagram: String = "",
-    val redTwitter: String = "",
-    val consintioRedes: Boolean = false,
-    val ocultarSeguidos: Boolean = false,       // Oculta a qué usuarios sigue
-    val ocultarNovelasVistas: Boolean = false   // Oculta las novelas que sigue/lee
+    val bannerBase64: String = "",
+    val bannerColorHex: String = "#5E2D40",
+    val enlacesRedes: List<String> = emptyList(),
+    val ocultarSeguidos: Boolean = false,
+    val ocultarNovelasVistas: Boolean = false
 )
 
 data class UsuarioSeguimiento(
@@ -20,7 +21,8 @@ data class UsuarioSeguimiento(
     val seguidorId: String = "",
     val seguidorNombre: String = "",
     val seguidoId: String = "",
-    val seguidoNombre: String = ""
+    val seguidoNombre: String = "",
+    val oculta: Boolean = false
 )
 
 data class SeguimientoRelacion(
@@ -46,7 +48,12 @@ data class Capitulo(
     val corazones: Int = 0,
     val meGusta: Int = 0,
     val noMeGusta: Int = 0,
-    val comentariosCount: Int = 0
+    val comentariosCount: Int = 0,
+    val vistas: Int = 0,
+    val usuariosCorazon: List<String> = emptyList(),
+    val usuariosLike: List<String> = emptyList(),
+    val usuariosDislike: List<String> = emptyList(),
+    val usuariosVistos: List<String> = emptyList()
 )
 
 data class Novela(
@@ -60,6 +67,7 @@ data class Novela(
     val portadaBase64: String = "",
     val portadaColorHex: String = "#5E2D40",
     val esPublicada: Boolean = true,
+    val fechaPublicacionProgramada: Long = 0L,
     val corazones: Int = 0,
     val meGusta: Int = 0,
     val noMeGusta: Int = 0,
@@ -68,12 +76,26 @@ data class Novela(
     val capitulos: List<Capitulo> = emptyList()
 )
 
+data class PublicacionComunidad(
+    val id: String = "",
+    val autorId: String = "",
+    val autorNombre: String = "",
+    val autorFotoBase64: String = "",
+    val mensaje: String = "",
+    val imagenBase64: String = "",
+    val novelaProgramadaId: String = "",
+    val novelaProgramadaTitulo: String = "",
+    val fechaLanzamiento: Long = 0L,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class ComentarioItem(
     val id: String = "",
     val novelaId: String = "",
     val capituloId: String = "",
     val usuarioId: String = "",
     val usuarioNombre: String = "",
+    val usuarioFotoBase64: String = "",
     val texto: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )

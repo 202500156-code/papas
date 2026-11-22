@@ -1,11 +1,13 @@
 package com.example.myapplication
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,6 +17,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,15 +31,25 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.ui.theme.LocalReadwoodColors
+import kotlinx.coroutines.delay
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.text.SimpleDateFormat
 
 @Composable
 fun IconoBocinaReporte(
@@ -77,6 +91,42 @@ fun IconoBocinaReporte(
     }
 }
 
+@Composable
+fun IconoOjoVisibilidad(
+    oculto: Boolean,
+    tint: Color,
+    modifier: Modifier = Modifier.size(20.dp)
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = w * 0.09f)
+
+        val ojoPath = Path().apply {
+            moveTo(w * 0.10f, h * 0.50f)
+            quadraticTo(w * 0.50f, h * 0.16f, w * 0.90f, h * 0.50f)
+            quadraticTo(w * 0.50f, h * 0.84f, w * 0.10f, h * 0.50f)
+            close()
+        }
+        drawPath(path = ojoPath, color = tint, style = stroke)
+
+        drawCircle(
+            color = tint,
+            radius = w * 0.13f,
+            center = Offset(w * 0.50f, h * 0.50f)
+        )
+
+        if (oculto) {
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.16f, h * 0.84f),
+                end = Offset(w * 0.84f, h * 0.16f),
+                strokeWidth = w * 0.10f
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -86,191 +136,79 @@ fun HomeScreen(
     usuariosQueSigo: List<UsuarioSeguimiento>,
     notificacionesSinLeer: Int,
     onAbrirNotificaciones: () -> Unit,
-    onSeleccionarNovela: (Novela) -> Unit
+    onSeleccionarNovela: (Novela) -> Unit,
+    onAbrirPerfilAutor: (String) -> Unit
 ) {
     val colors = LocalReadwoodColors.current
-    var modoBusqueda by remember { mutableIntStateOf(0) } // 0 = Obras, 1 = Usuarios
     var textoBusqueda by remember { mutableStateOf("") }
     var generoSeleccionado by remember { mutableStateOf("Todos") }
     val generos = listOf("Todos", "Fantasía", "Romance", "Misterio", "Terror", "Ciencia Ficción")
 
-    // Estados para búsqueda y vista de perfil de otros usuarios
-    var resultadosUsuarios by remember { mutableStateOf<List<UsuarioPerfil>>(emptyList()) }
-    var usuarioInspeccionado by remember { mutableStateOf<UsuarioPerfil?>(null) }
-    var seguidosDelUsuario by remember { mutableStateOf<List<UsuarioSeguimiento>>(emptyList()) }
-    var novelasVistasDelUsuario by remember { mutableStateOf<List<SeguimientoRelacion>>(emptyList()) }
+    var resultadosUsuarios by remember { mutableStateOf(emptyList<UsuarioPerfil>()) }
 
-    LaunchedEffect(modoBusqueda, textoBusqueda) {
-        if (modoBusqueda == 1) {
+    LaunchedEffect(textoBusqueda) {
+        if (textoBusqueda.trim().isNotEmpty()) {
             FirestoreService.buscarUsuarios(textoBusqueda) { lista ->
                 resultadosUsuarios = lista.filter { it.id != usuario.id }
             }
+        } else {
+            resultadosUsuarios = emptyList()
         }
     }
 
-    // Modal de Perfil Público de otro Usuario (con bocina de reporte, botón seguir, usuarios seguidos y novelas vistas)
-    if (usuarioInspeccionado != null) {
-        val uObj = usuarioInspeccionado!!
-        val yaLoSigo = usuariosQueSigo.any { it.seguidoId == uObj.id }
-        val fotoAjena = remember(uObj.fotoBase64) { ImageUtils.base64ToImageBitmap(uObj.fotoBase64) }
-        val obrasDelUsuario = novelas.filter { it.autorId == uObj.id && it.esPublicada }
+    val novelasPublicadas = remember(novelas) {
+        novelas.filter { it.esPublicada && it.id.isNotBlank() && it.titulo.isNotBlank() }
+    }
+    val q = textoBusqueda.trim()
 
-        LaunchedEffect(uObj.id) {
-            FirestoreService.obtenerActividadPublicaUsuario(uObj.id) { users, novs ->
-                seguidosDelUsuario = users
-                novelasVistasDelUsuario = novs
-            }
+    val filtradas = remember(novelasPublicadas, q, generoSeleccionado) {
+        novelasPublicadas.filter { n ->
+            val coincideTexto = q.isEmpty() ||
+                    n.titulo.contains(q, ignoreCase = true) ||
+                    n.autor.contains(q, ignoreCase = true) ||
+                    n.etiquetas.any { it.contains(q, ignoreCase = true) }
+            val coincideGenero = generoSeleccionado == "Todos" || n.categoria.contains(generoSeleccionado, ignoreCase = true)
+            coincideTexto && coincideGenero
         }
-
-        AlertDialog(
-            onDismissRequest = { usuarioInspeccionado = null },
-            containerColor = colors.cardBg,
-            title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(colors.bg)
-                                .border(1.dp, colors.purple, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (fotoAjena != null) {
-                                Image(bitmap = fotoAjena, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            } else {
-                                Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = colors.purple)
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(uObj.usuario, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = colors.textDark)
-                    }
-                    IconButton(onClick = {
-                        FirestoreService.enviarReporte(
-                            reportante = usuario,
-                            tipoObjetivo = "USUARIO",
-                            objetivoId = uObj.id,
-                            objetivoNombre = uObj.usuario,
-                            motivo = "Reporte desde perfil de lector/escritor"
-                        )
-                        usuarioInspeccionado = null
-                    }) {
-                        IconoBocinaReporte(tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .heightIn(max = 360.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            FirestoreService.seguirODejarDeSeguirUsuario(usuario, uObj, yaLoSigo)
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (yaLoSigo) colors.bg else colors.purple
-                        ),
-                        border = if (yaLoSigo) BorderStroke(1.dp, colors.purple) else null,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = if (yaLoSigo) "✓ Siguiendo usuario (Dejar de seguir)" else "+ Seguir usuario",
-                            color = if (yaLoSigo) colors.purple else Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    if (uObj.consintioRedes && (uObj.redInstagram.isNotBlank() || uObj.redTwitter.isNotBlank())) {
-                        Text(
-                            text = "Redes: ${listOf(uObj.redInstagram, uObj.redTwitter).filter { it.isNotBlank() }.joinToString(" • ")}",
-                            fontSize = 12.sp,
-                            color = colors.purple
-                        )
-                    }
-
-                    HorizontalDivider(color = colors.border)
-
-                    // 1. Usuarios que sigue (respeta privacidad ocultarSeguidos)
-                    Text("Usuarios que sigue:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.textDark)
-                    if (uObj.ocultarSeguidos) {
-                        Text("🔒 Este usuario ocultó a quién sigue.", fontSize = 12.sp, color = colors.textMuted)
-                    } else if (seguidosDelUsuario.isEmpty()) {
-                        Text("Aún no sigue a otros usuarios.", fontSize = 12.sp, color = colors.textMuted)
-                    } else {
-                        Text(
-                            text = seguidosDelUsuario.joinToString(", ") { it.seguidoNombre },
-                            fontSize = 12.sp,
-                            color = colors.textDark
-                        )
-                    }
-
-                    HorizontalDivider(color = colors.border)
-
-                    // 2. Novelas que sigue / ve (respeta privacidad ocultarNovelasVistas y novelas ocultas individuales)
-                    Text("Novelas que sigue y lee:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.textDark)
-                    if (uObj.ocultarNovelasVistas) {
-                        Text("🔒 Este usuario ocultó las novelas que lee.", fontSize = 12.sp, color = colors.textMuted)
-                    } else if (novelasVistasDelUsuario.isEmpty()) {
-                        Text("No tiene novelas públicas en su lista de lectura.", fontSize = 12.sp, color = colors.textMuted)
-                    } else {
-                        novelasVistasDelUsuario.forEach { rel ->
-                            Text(
-                                text = "• ${rel.novelaTitulo} (${rel.progresoPorcentaje}% leído)",
-                                fontSize = 12.sp,
-                                color = colors.purple,
-                                modifier = Modifier.clickable {
-                                    val nov = novelas.find { it.id == rel.novelaId }
-                                    if (nov != null) {
-                                        usuarioInspeccionado = null
-                                        onSeleccionarNovela(nov)
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    if (obrasDelUsuario.isNotEmpty()) {
-                        HorizontalDivider(color = colors.border)
-                        Text("Novelas publicadas por ${uObj.usuario}:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colors.textDark)
-                        obrasDelUsuario.forEach { nov ->
-                            Text(
-                                text = "📖 ${nov.titulo}",
-                                fontSize = 12.sp,
-                                color = colors.purple,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.clickable {
-                                    usuarioInspeccionado = null
-                                    onSeleccionarNovela(nov)
-                                }
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { usuarioInspeccionado = null }) {
-                    Text("Cerrar", color = colors.purple)
-                }
-            }
-        )
     }
 
-    val novelasPublicadas = novelas.filter { it.esPublicada }
-    val filtradas = novelasPublicadas.filter { n ->
-        (n.titulo.contains(textoBusqueda, true) || n.autor.contains(textoBusqueda, true)) &&
-                (generoSeleccionado == "Todos" || n.categoria.contains(generoSeleccionado, true))
+    val novelasSiguiendoLeyendo = remember(seguimientos, novelasPublicadas) {
+        seguimientos.mapNotNull { rel ->
+            val nov = novelasPublicadas.find { it.id == rel.novelaId }
+            if (nov != null) rel to nov else null
+        }
+    }
+
+    val novelasRecomendadas = remember(novelasPublicadas, seguimientos, usuariosQueSigo) {
+        val idsLeidas = seguimientos.map { it.novelaId }.toSet()
+        val novelasBase = novelasPublicadas.filter { it.id in idsLeidas }
+        val autoresAfin = (novelasBase.map { it.autorId } + usuariosQueSigo.map { it.seguidoId }).toSet()
+        val generosAfin = novelasBase.map { it.categoria.lowercase() }.toSet()
+        val etiquetasAfin = novelasBase.flatMap { n -> n.etiquetas.map { it.lowercase() } }.toSet()
+
+        if (autoresAfin.isEmpty() && generosAfin.isEmpty() && etiquetasAfin.isEmpty()) {
+            emptyList()
+        } else {
+            novelasPublicadas
+                .filter { it.id !in idsLeidas && it.autorId != usuario.id }
+                .map { cand ->
+                    var puntaje = 0
+                    if (cand.autorId in autoresAfin) puntaje += 5
+                    if (cand.categoria.lowercase() in generosAfin) puntaje += 3
+                    val tagsComunes = cand.etiquetas.count { it.lowercase() in etiquetasAfin }
+                    puntaje += tagsComunes * 2
+                    cand to puntaje
+                }
+                .filter { it.second > 0 }
+                .sortedByDescending { it.second }
+                .map { it.first }
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0.dp),
                 title = {
                     Column {
                         Text(
@@ -284,7 +222,7 @@ fun HomeScreen(
                             fontFamily = FontFamily.Serif,
                             fontWeight = FontWeight.Bold,
                             color = colors.purple,
-                            fontSize = 24.sp
+                            fontSize = 23.sp
                         )
                     }
                 },
@@ -313,79 +251,231 @@ fun HomeScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            // Selector limpio entre Obras y Usuarios
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (modoBusqueda == 0) colors.purple else colors.cardBg,
-                    border = BorderStroke(1.dp, colors.border),
-                    modifier = Modifier.weight(1f).clickable { modoBusqueda = 0 }
-                ) {
-                    Text(
-                        text = "Novelas",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (modoBusqueda == 0) Color.White else colors.textDark,
-                        modifier = Modifier.padding(vertical = 8.dp).wrapContentWidth(Alignment.CenterHorizontally)
-                    )
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (modoBusqueda == 1) colors.purple else colors.cardBg,
-                    border = BorderStroke(1.dp, colors.border),
-                    modifier = Modifier.weight(1f).clickable { modoBusqueda = 1 }
-                ) {
-                    Text(
-                        text = "Lectores y Autores",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (modoBusqueda == 1) Color.White else colors.textDark,
-                        modifier = Modifier.padding(vertical = 8.dp).wrapContentWidth(Alignment.CenterHorizontally)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
             OutlinedTextField(
                 value = textoBusqueda,
                 onValueChange = { textoBusqueda = it },
                 placeholder = {
                     Text(
-                        if (modoBusqueda == 0) "Buscar novelas o autores..." else "Buscar usuario por nombre...",
-                        color = colors.textMuted
+                        text = "Buscar novelas, autores o lectores...",
+                        color = colors.textMuted,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = colors.textMuted) },
+                textStyle = TextStyle(fontSize = 14.sp, color = colors.textDark),
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (textoBusqueda.isNotEmpty()) {
+                        IconButton(onClick = { textoBusqueda = "" }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Outlined.Clear, contentDescription = "Limpiar", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
                 shape = RoundedCornerShape(10.dp)
             )
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(generos) { gen ->
+                    val sel = generoSeleccionado == gen
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (sel) colors.purple else colors.cardBg,
+                        border = BorderStroke(0.8.dp, if (sel) colors.purple else colors.border),
+                        modifier = Modifier.clickable { generoSeleccionado = gen }
+                    ) {
+                        Text(
+                            text = gen,
+                            fontSize = 12.sp,
+                            color = if (sel) Color.White else colors.textDark,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (modoBusqueda == 1) {
-                // Lista de usuarios encontrados para seguir y ver su actividad
-                if (resultadosUsuarios.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No se encontraron otros usuarios con ese nombre.", color = colors.textMuted)
+            if (q.isNotEmpty() && resultadosUsuarios.isEmpty() && filtradas.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No se encontraron autores, lectores ni novelas para \"$q\".", color = colors.textMuted, fontSize = 13.sp)
+                }
+            } else if (q.isEmpty() && filtradas.isEmpty() && novelasSiguiendoLeyendo.isEmpty()) {
+                Spacer(modifier = Modifier.weight(1f))
+                Surface(
+                    color = colors.cardBg,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(0.8.dp, colors.border),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = "Aún no hay novelas publicadas en este género. ¡Sé el primero en crear una desde la pestaña Escribir!",
+                        color = colors.textMuted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 28.dp)
+                ) {
+                    if (q.isEmpty() && novelasSiguiendoLeyendo.isNotEmpty()) {
+                        item(key = "seccion_seguir_leyendo") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Seguir leyendo",
+                                    fontFamily = FontFamily.Serif,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = colors.textDark
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(novelasSiguiendoLeyendo, key = { it.first.id }) { (rel, nov) ->
+                                        val portBmp = remember(nov.portadaBase64) { ImageUtils.base64ToImageBitmap(nov.portadaBase64) }
+                                        Surface(
+                                            color = colors.cardBg,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(0.8.dp, colors.border),
+                                            modifier = Modifier
+                                                .width(235.dp)
+                                                .clickable { onSeleccionarNovela(nov) }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                PortadaConTextoSuperpuesto(
+                                                    titulo = nov.titulo,
+                                                    autor = nov.autor,
+                                                    portadaBmp = portBmp,
+                                                    colorHex = nov.portadaColorHex,
+                                                    width = 48.dp,
+                                                    height = 70.dp,
+                                                    tituloSize = 8.sp,
+                                                    autorSize = 6.sp
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = nov.titulo,
+                                                        fontFamily = FontFamily.Serif,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = colors.textDark,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "Cap. ${rel.capituloActual} • ${rel.progresoPorcentaje}%",
+                                                        fontSize = 11.sp,
+                                                        color = colors.textMuted
+                                                    )
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    LinearProgressIndicator(
+                                                        progress = { rel.progresoPorcentaje / 100f },
+                                                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                                                        color = colors.purple
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(resultadosUsuarios, key = { it.id }) { uItem ->
+
+                    if (q.isEmpty() && generoSeleccionado == "Todos" && novelasRecomendadas.isNotEmpty()) {
+                        item(key = "seccion_recomendadas") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Recomendadas para ti",
+                                    fontFamily = FontFamily.Serif,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = colors.textDark
+                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    items(novelasRecomendadas, key = { "rec_${it.id}" }) { novRec ->
+                                        val portRec = remember(novRec.portadaBase64) { ImageUtils.base64ToImageBitmap(novRec.portadaBase64) }
+                                        Surface(
+                                            color = colors.cardBg,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(0.8.dp, colors.border),
+                                            modifier = Modifier
+                                                .width(118.dp)
+                                                .clickable { onSeleccionarNovela(novRec) }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(8.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                PortadaConTextoSuperpuesto(
+                                                    titulo = novRec.titulo,
+                                                    autor = novRec.autor,
+                                                    portadaBmp = portRec,
+                                                    colorHex = novRec.portadaColorHex,
+                                                    width = 96.dp,
+                                                    height = 136.dp,
+                                                    tituloSize = 11.sp,
+                                                    autorSize = 8.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Text(
+                                                    text = novRec.titulo,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = colors.textDark,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = novRec.categoria,
+                                                    fontSize = 10.sp,
+                                                    color = colors.purple,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (q.isNotEmpty() && resultadosUsuarios.isNotEmpty()) {
+                        item(key = "header_usuarios") {
+                            Text(
+                                text = "AUTORES Y LECTORES (${resultadosUsuarios.size})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.purple
+                            )
+                        }
+                        items(resultadosUsuarios, key = { "user_${it.id}" }) { uItem ->
                             val loSigo = usuariosQueSigo.any { it.seguidoId == uItem.id }
                             val fotoUser = remember(uItem.fotoBase64) { ImageUtils.base64ToImageBitmap(uItem.fotoBase64) }
+                            val esMiUsuario = uItem.id == usuario.id
                             Surface(
                                 color = colors.cardBg,
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(0.8.dp, colors.border),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { usuarioInspeccionado = uItem }
+                                    .clickable { onAbrirPerfilAutor(uItem.id) }
                             ) {
                                 Row(
                                     modifier = Modifier.padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
+
                                 ) {
                                     Box(
                                         modifier = Modifier
@@ -404,12 +494,10 @@ fun HomeScreen(
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(uItem.usuario, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
-                                        Text("Toca para ver a quién sigue y qué lee", fontSize = 11.sp, color = colors.textMuted)
+                                        Text("Ver perfil, obras y enlaces", fontSize = 11.sp, color = colors.textMuted)
                                     }
                                     OutlinedButton(
-                                        onClick = {
-                                            FirestoreService.seguirODejarDeSeguirUsuario(usuario, uItem, loSigo)
-                                        }
+                                        onClick = { FirestoreService.seguirODejarDeSeguirUsuario(usuario, uItem, loSigo) }
                                     ) {
                                         Text(if (loSigo) "Siguiendo" else "Seguir", color = colors.purple, fontSize = 12.sp)
                                     }
@@ -417,116 +505,732 @@ fun HomeScreen(
                             }
                         }
                     }
-                }
-            } else {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(generos) { gen ->
-                        val sel = generoSeleccionado == gen
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (sel) colors.purple else colors.cardBg,
-                            border = BorderStroke(0.8.dp, if (sel) colors.purple else colors.border),
-                            modifier = Modifier.clickable { generoSeleccionado = gen }
-                        ) {
+
+                    if (filtradas.isNotEmpty()) {
+                        item(key = "header_novelas") {
                             Text(
-                                text = gen,
-                                fontSize = 12.sp,
-                                color = if (sel) Color.White else colors.textDark,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                text = if (q.isNotEmpty()) "NOVELAS (${filtradas.size})" else "Explorar Novelas",
+                                fontFamily = FontFamily.Serif,
+                                fontSize = if (q.isNotEmpty()) 12.sp else 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (q.isNotEmpty()) colors.purple else colors.textDark,
+                                modifier = Modifier.padding(top = 4.dp)
                             )
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                val ultimaLectura = seguimientos.firstOrNull()
-                if (ultimaLectura != null) {
-                    val novelaAsociada = novelasPublicadas.find { it.id == ultimaLectura.novelaId }
-                    if (novelaAsociada != null) {
+                    items(filtradas, key = { it.id }) { novela ->
+                        val portadaBmp = remember(novela.portadaBase64) { ImageUtils.base64ToImageBitmap(novela.portadaBase64) }
                         Surface(
                             color = colors.cardBg,
                             shape = RoundedCornerShape(10.dp),
                             border = BorderStroke(0.8.dp, colors.border),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 12.dp)
-                                .clickable { onSeleccionarNovela(novelaAsociada) }
+                                .clickable { onSeleccionarNovela(novela) }
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text("CONTINUAR LECTURA", fontSize = 10.sp, color = colors.purple, fontWeight = FontWeight.Bold)
-                                Text(novelaAsociada.titulo, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = colors.textDark)
-                                Text("Capítulo ${ultimaLectura.capituloActual} • ${ultimaLectura.progresoPorcentaje}% leído", fontSize = 12.sp, color = colors.textMuted)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { ultimaLectura.progresoPorcentaje / 100f },
-                                    modifier = Modifier.fillMaxWidth().height(4.dp),
-                                    color = colors.purple
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PortadaConTextoSuperpuesto(
+                                    titulo = novela.titulo,
+                                    autor = novela.autor,
+                                    portadaBmp = portadaBmp,
+                                    colorHex = novela.portadaColorHex,
+                                    width = 68.dp,
+                                    height = 98.dp,
+                                    tituloSize = 10.sp,
+                                    autorSize = 8.sp
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(novela.categoria.uppercase(), fontSize = 10.sp, color = colors.purple, fontWeight = FontWeight.Bold)
+                                    Text(novela.titulo, fontFamily = FontFamily.Serif, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                                    Text(
+                                        text = "Por ${novela.autor}",
+                                        fontSize = 12.sp,
+                                        color = colors.purple,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.clickable { onAbrirPerfilAutor(novela.autorId) }
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(novela.sinopsis, fontSize = 12.sp, color = colors.textDark, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "♥ ${novela.corazones}  •  👍 ${novela.meGusta}  •  👎 ${novela.noMeGusta}  •  👁 ${novela.vistas}  •  💬 ${novela.totalComentarios}",
+                                        fontSize = 10.sp,
+                                        color = colors.purple,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PerfilPublicoAutorScreen(
+    usuarioActual: UsuarioPerfil,
+    autorId: String,
+    novelas: List<Novela>,
+    usuariosQueSigo: List<UsuarioSeguimiento>,
+    onVolver: () -> Unit,
+    onSeleccionarNovela: (Novela) -> Unit,
+    onAbrirOtroPerfil: (String) -> Unit
+) {
+    BackHandler { onVolver() }
+
+    val colors = LocalReadwoodColors.current
+    val uriHandler = LocalUriHandler.current
+    var perfilAutor by remember(autorId) { mutableStateOf<UsuarioPerfil?>(null) }
+    var seguidosDelAutor by remember(autorId) { mutableStateOf(emptyList<UsuarioSeguimiento>()) }
+    var mapaPerfiles by remember { mutableStateOf(emptyMap<String, UsuarioPerfil>()) }
+    var mostrarDialogoReporte by remember { mutableStateOf(false) }
+    var motivoReporte by remember { mutableStateOf("") }
+    var mensajeAviso by remember { mutableStateOf("") }
+
+    LaunchedEffect(autorId) {
+        FirestoreService.obtenerPerfilPorId(autorId) { perfilAutor = it }
+        FirestoreService.obtenerSeguidosPublicosDeUsuario(autorId) { seguidosDelAutor = it }
+        FirestoreService.buscarUsuarios("") { lista ->
+            mapaPerfiles = lista.associateBy { it.id }
+        }
+    }
+
+    val obrasPublicadas = remember(novelas, autorId) {
+        novelas.filter { it.autorId == autorId && it.esPublicada && it.id.isNotBlank() && it.titulo.isNotBlank() }
+    }
+    if (mostrarDialogoReporte && perfilAutor != null) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogoReporte = false },
+            title = { Text("Reportar a ${perfilAutor!!.usuario}", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = motivoReporte,
+                    onValueChange = { motivoReporte = it },
+                    placeholder = { Text("Motivo del reporte...") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    FirestoreService.enviarReporte(
+                        reportante = usuarioActual,
+                        tipoObjetivo = "USUARIO",
+                        objetivoId = perfilAutor!!.id,
+                        objetivoNombre = perfilAutor!!.usuario,
+                        motivo = motivoReporte.ifBlank { "Reporte de perfil" }
+                    ) {
+                        mensajeAviso = "Reporte enviado correctamente."
+                    }
+                    motivoReporte = ""
+                    mostrarDialogoReporte = false
+                }) { Text("Enviar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarDialogoReporte = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.bg)
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+    ) {
+        if (perfilAutor == null) {
+            Box(modifier = Modifier.fillMaxSize().statusBarsPadding().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = colors.purple)
+            }
+        } else {
+            val autor = perfilAutor!!
+            val esMiPropioPerfil = autor.id == usuarioActual.id
+            val yaLoSigo = usuariosQueSigo.any { it.seguidoId == autor.id }
+            val fotoBmp = remember(autor.fotoBase64) { ImageUtils.base64ToImageBitmap(autor.fotoBase64) }
+            val bannerBmp = remember(autor.bannerBase64) { ImageUtils.base64ToImageBitmap(autor.bannerBase64) }
+            val bannerColor = remember(autor.bannerColorHex) { parseHexColorSafe(autor.bannerColorHex, colors.purple) }
+
+            Box(modifier = Modifier.fillMaxWidth().height(175.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(bannerColor)
+                ) {
+                    if (bannerBmp != null) {
+                        Image(bitmap = bannerBmp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.45f),
+                            modifier = Modifier.clickable { onVolver() }
+                        ) {
+                            Text("← Volver", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                        }
+                        if (!esMiPropioPerfil) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.45f)
+                            ) {
+                                IconButton(onClick = { mostrarDialogoReporte = true }, modifier = Modifier.size(34.dp)) {
+                                    IconoBocinaReporte(tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 16.dp)
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(colors.cardBg)
+                        .border(2.5.dp, colors.bg, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (fotoBmp != null) {
+                        Image(bitmap = fotoBmp, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    } else {
+                        Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = colors.purple, modifier = Modifier.size(52.dp))
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 12.dp, bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(autor.usuario, fontFamily = FontFamily.Serif, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                        if (autor.mostrarCorreoPublico && autor.correo.isNotBlank()) {
+                            Text("✉ ${autor.correo}", fontSize = 12.sp, color = colors.purple)
+                        }
+                    }
+
+                    if (!esMiPropioPerfil) {
+                        Button(
+                            onClick = { FirestoreService.seguirODejarDeSeguirUsuario(usuarioActual, autor, yaLoSigo) },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (yaLoSigo) colors.cardBg else colors.purple),
+                            border = if (yaLoSigo) BorderStroke(1.dp, colors.purple) else null
+                        ) {
+                            Text(
+                                text = if (yaLoSigo) "✓ Siguiendo" else "+ Seguir",
+                                color = if (yaLoSigo) colors.purple else Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                if (mensajeAviso.isNotEmpty()) {
+                    Text(mensajeAviso, fontSize = 12.sp, color = colors.purple, fontWeight = FontWeight.SemiBold)
+                }
+
+                Text("Obras publicadas (${obrasPublicadas.size})", fontFamily = FontFamily.Serif, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                if (obrasPublicadas.isEmpty()) {
+                    Text("Este autor aún no tiene obras publicadas.", fontSize = 13.sp, color = colors.textMuted)
+                } else {
+                    obrasPublicadas.forEach { nov ->
+                        val portBmp = remember(nov.portadaBase64) { ImageUtils.base64ToImageBitmap(nov.portadaBase64) }
+                        Surface(
+                            color = colors.cardBg,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.8.dp, colors.border),
+                            modifier = Modifier.fillMaxWidth().clickable { onSeleccionarNovela(nov) }
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PortadaConTextoSuperpuesto(
+                                    titulo = nov.titulo,
+                                    autor = nov.autor,
+                                    portadaBmp = portBmp,
+                                    colorHex = nov.portadaColorHex,
+                                    width = 52.dp,
+                                    height = 74.dp,
+                                    tituloSize = 8.sp,
+                                    autorSize = 7.sp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(nov.titulo, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
+                                    Text("${nov.categoria} • ${nov.capitulos.size} cap(s)", fontSize = 11.sp, color = colors.purple)
+                                    Text(nov.sinopsis, fontSize = 12.sp, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = colors.border)
+
+                Text("Redes Sociales", fontFamily = FontFamily.Serif, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                if (autor.enlacesRedes.isEmpty()) {
+                    Text("Aún no hay redes", fontSize = 12.sp, color = colors.textMuted)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        autor.enlacesRedes.forEach { enlace ->
+                            Surface(
+                                color = colors.cardBg,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(0.8.dp, colors.border),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val url = if (enlace.startsWith("http://") || enlace.startsWith("https://")) enlace else "https://$enlace"
+                                        try { uriHandler.openUri(url) } catch (_: Exception) {}
+                                    }
+                            ) {
+                                Text(
+                                    text = "🔗 $enlace",
+                                    fontSize = 13.sp,
+                                    color = colors.purple,
+                                    textDecoration = TextDecoration.Underline,
+                                    modifier = Modifier.padding(10.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                if (filtradas.isEmpty()) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Surface(
-                        color = colors.cardBg,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(0.8.dp, colors.border),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp)
-                    ) {
-                        Text(
-                            text = "Aún no hay novelas publicadas en este género. ¡Sé el primero en crear una desde la pestaña Escribir!",
-                            color = colors.textMuted,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
+                HorizontalDivider(color = colors.border)
+
+                Text("Personas que sigue (${seguidosDelAutor.size})", fontFamily = FontFamily.Serif, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+                if (seguidosDelAutor.isEmpty()) {
+                    Text("No muestra usuarios seguidos.", fontSize = 12.sp, color = colors.textMuted)
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(filtradas, key = { it.id }) { novela ->
-                            val portadaBmp = remember(novela.portadaBase64) { ImageUtils.base64ToImageBitmap(novela.portadaBase64) }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(seguidosDelAutor, key = { it.id }) { seg ->
+                            val perfSeg = mapaPerfiles[seg.seguidoId]
+                            val fotoSeg = remember(perfSeg?.fotoBase64) { ImageUtils.base64ToImageBitmap(perfSeg?.fotoBase64 ?: "") }
                             Surface(
                                 color = colors.cardBg,
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(0.8.dp, colors.border),
+                                modifier = Modifier.clickable { onAbrirOtroPerfil(seg.seguidoId) }
+                            ) {
+                                Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier.size(30.dp).clip(CircleShape).background(colors.bg).border(1.dp, colors.purple, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (fotoSeg != null) {
+                                            Image(bitmap = fotoSeg, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                        } else {
+                                            Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = colors.purple, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(seg.seguidoNombre, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.textDark)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ComunidadScreen(
+    usuario: UsuarioPerfil,
+    novelas: List<Novela>,
+    onSeleccionarNovela: (Novela) -> Unit,
+    onAbrirPerfilAutor: (String) -> Unit
+) {
+    val colors = LocalReadwoodColors.current
+    val context = LocalContext.current
+
+    var publicaciones by remember { mutableStateOf(emptyList<PublicacionComunidad>()) }
+    var nuevoPost by remember { mutableStateOf("") }
+    var imagenAdjuntaBase64 by remember { mutableStateOf("") }
+    var fechaProgramadaMillis by remember { mutableStateOf<Long?>(null) }
+    var mensajeErrorComunidad by remember { mutableStateOf("") }
+    var ahoraMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val selectorImagenComunidad = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val b64 = ImageUtils.uriToCompressedBase64(context, uri)
+            if (b64.isNotEmpty()) {
+                imagenAdjuntaBase64 = b64
+            }
+        }
+    }
+
+    val hayContadoresActivos = remember(publicaciones, novelas) {
+        publicaciones.any { it.fechaLanzamiento > ahoraMillis || it.timestamp > ahoraMillis } ||
+                novelas.any { !it.esPublicada && it.fechaPublicacionProgramada > ahoraMillis }
+    }
+
+    LaunchedEffect(hayContadoresActivos) {
+        while (hayContadoresActivos) {
+            delay(1000L)
+            ahoraMillis = System.currentTimeMillis()
+        }
+    }
+
+    DisposableEffect(usuario.id) {
+        val reg = FirestoreService.escucharComunidad(usuario.id) { publicaciones = it }
+        onDispose { reg.remove() }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.bg)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = "Comunidad Readwood",
+            fontFamily = FontFamily.Serif,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = colors.textDark
+        )
+        Text(
+            text = "Anuncios de autores y lanzamientos programados",
+            fontSize = 12.sp,
+            color = colors.textMuted
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Caja para crear publicación con imagen y programación
+        Surface(
+            color = colors.cardBg,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(0.8.dp, colors.border),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = nuevoPost,
+                    onValueChange = { nuevoPost = it },
+                    placeholder = {
+                        Text(
+                            text = "Comparte un aviso, adelanto o noticia con tus lectores...",
+                            color = colors.textMuted,
+                            fontSize = 13.sp
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+
+                // Vista previa de imagen adjunta antes de publicar
+                if (imagenAdjuntaBase64.isNotEmpty()) {
+                    val previewBmp = remember(imagenAdjuntaBase64) {
+                        ImageUtils.base64ToImageBitmap(imagenAdjuntaBase64)
+                    }
+                    if (previewBmp != null) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Image(
+                                bitmap = previewBmp,
+                                contentDescription = "Vista previa",
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onSeleccionarNovela(novela) }
+                                    .height(160.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .clickable { imagenAdjuntaBase64 = "" }
                             ) {
-                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    PortadaConTextoSuperpuesto(
-                                        titulo = novela.titulo,
-                                        autor = novela.autor,
-                                        portadaBmp = portadaBmp,
-                                        colorHex = novela.portadaColorHex,
-                                        width = 68.dp,
-                                        height = 98.dp,
-                                        tituloSize = 10.sp,
-                                        autorSize = 8.sp
-                                    )
+                                Text(
+                                    text = "✕",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
-                                    Spacer(modifier = Modifier.width(12.dp))
+                // Botones para adjuntar imagen y programar fecha/hora
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { selectorImagenComunidad.launch("image/*") },
+                        border = BorderStroke(1.dp, colors.purple),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = null,
+                            tint = colors.purple,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (imagenAdjuntaBase64.isEmpty()) "Imagen" else "Cambiar img",
+                            color = colors.purple,
+                            fontSize = 12.sp
+                        )
+                    }
 
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(novela.categoria.uppercase(), fontSize = 10.sp, color = colors.purple, fontWeight = FontWeight.Bold)
-                                        Text(novela.titulo, fontFamily = FontFamily.Serif, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
-                                        Text("Por ${novela.autor}", fontSize = 12.sp, color = colors.textMuted)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(novela.sinopsis, fontSize = 12.sp, color = colors.textDark, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "♥ ${novela.corazones}  •  👍 ${novela.meGusta}  •  👎 ${novela.noMeGusta}  •  👁 ${novela.vistas}  •  💬 ${novela.totalComentarios}",
-                                            fontSize = 10.sp,
-                                            color = colors.purple,
-                                            fontWeight = FontWeight.SemiBold
+                    OutlinedButton(
+                        onClick = {
+                            val cal = Calendar.getInstance()
+                            android.app.DatePickerDialog(
+                                context,
+                                { _, year, month, day ->
+                                    android.app.TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            val elegida = Calendar.getInstance().apply {
+                                                set(year, month, day, hour, minute, 0)
+                                            }.timeInMillis
+                                            if (elegida > System.currentTimeMillis()) {
+                                                fechaProgramadaMillis = elegida
+                                                mensajeErrorComunidad = ""
+                                            } else {
+                                                mensajeErrorComunidad = "Elige una fecha y hora futura."
+                                            }
+                                        },
+                                        cal.get(Calendar.HOUR_OF_DAY),
+                                        cal.get(Calendar.MINUTE),
+                                        true
+                                    ).show()
+                                },
+                                cal.get(Calendar.YEAR),
+                                cal.get(Calendar.MONTH),
+                                cal.get(Calendar.DAY_OF_MONTH)
+                            ).show()
+                        },
+                        border = BorderStroke(1.dp, colors.purple),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        val etiquetaFecha = if (fechaProgramadaMillis == null) {
+                            "⏳ Programar"
+                        } else {
+                            "⏳ " + SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(fechaProgramadaMillis!!))
+                        }
+                        Text(text = etiquetaFecha, color = colors.purple, fontSize = 12.sp)
+                    }
+
+                    if (fechaProgramadaMillis != null) {
+                        TextButton(
+                            onClick = { fechaProgramadaMillis = null },
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text("Ahora", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                if (mensajeErrorComunidad.isNotEmpty()) {
+                    Text(mensajeErrorComunidad, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+
+                Button(
+                    onClick = {
+                        if (nuevoPost.isNotBlank() || imagenAdjuntaBase64.isNotEmpty()) {
+                            val tsDestino = fechaProgramadaMillis ?: System.currentTimeMillis()
+                            FirestoreService.publicarEnComunidad(
+                                autor = usuario,
+                                mensaje = nuevoPost,
+                                imagenBase64 = imagenAdjuntaBase64,
+                                timestampProgramado = tsDestino
+                            ) {
+                                nuevoPost = ""
+                                imagenAdjuntaBase64 = ""
+                                fechaProgramadaMillis = null
+                                mensajeErrorComunidad = ""
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.purple),
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        text = if (fechaProgramadaMillis != null) "Programar publicación" else "Publicar en Comunidad",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        if (publicaciones.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Aún no hay publicaciones en la comunidad.", color = colors.textMuted)
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 28.dp)
+            ) {
+                items(publicaciones, key = { it.id }) { post ->
+                    val fotoAutor = remember(post.autorFotoBase64) {
+                        ImageUtils.base64ToImageBitmap(post.autorFotoBase64)
+                    }
+                    val imagenPostBmp = remember(post.imagenBase64) {
+                        ImageUtils.base64ToImageBitmap(post.imagenBase64)
+                    }
+                    val restanteMs = (post.fechaLanzamiento - ahoraMillis).coerceAtLeast(0L)
+                    val esLanzamiento = post.novelaProgramadaId.isNotEmpty() && post.fechaLanzamiento > 0L
+                    val esProgramadaFutura = post.timestamp > ahoraMillis
+                    val esMiPost = post.autorId == usuario.id
+
+                    Surface(
+                        color = colors.cardBg,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(0.8.dp, colors.border),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable(enabled = !esMiPost) {
+                                    if (!esMiPost) onAbrirPerfilAutor(post.autorId)
+                                }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.bg)
+                                        .border(1.dp, colors.purple, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (fotoAutor != null) {
+                                        Image(
+                                            bitmap = fotoAutor,
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
                                         )
+                                    } else {
+                                        Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = colors.purple)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "${post.autorNombre} : Autor",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = colors.purple
+                                    )
+                                    val subtitulo = if (esProgramadaFutura) {
+                                        "Programada para: " + SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(post.timestamp))
+                                    } else {
+                                        "Anuncio oficial"
+                                    }
+                                    Text(subtitulo, fontSize = 11.sp, color = colors.textMuted)
+                                }
+                            }
+
+                            if (post.mensaje.isNotBlank()) {
+                                Text(post.mensaje, fontSize = 14.sp, color = colors.textDark)
+                            }
+
+                            // Imagen adjunta de la publicación
+                            if (imagenPostBmp != null) {
+                                Image(
+                                    bitmap = imagenPostBmp,
+                                    contentDescription = "Imagen de comunidad",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(210.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                )
+                            }
+
+                            if (esLanzamiento) {
+                                Surface(
+                                    color = colors.purple.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, colors.purple),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "ESTRENO PROGRAMADO",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = colors.purple
+                                        )
+                                        Text(
+                                            text = post.novelaProgramadaTitulo,
+                                            fontFamily = FontFamily.Serif,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            color = colors.textDark
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        if (restanteMs > 0L) {
+                                            val totalSeg = restanteMs / 1000
+                                            val dias = totalSeg / 86400
+                                            val horas = (totalSeg % 86400) / 3600
+                                            val mins = (totalSeg % 3600) / 60
+                                            val segs = totalSeg % 60
+                                            val formato = if (dias > 0) {
+                                                String.format("%dd %02d:%02d:%02d", dias, horas, mins, segs)
+                                            } else {
+                                                String.format("%02d:%02d:%02d", horas, mins, segs)
+                                            }
+                                            Text(
+                                                text = "⏳ Se publica en: $formato",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = colors.purple
+                                            )
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    val nov = novelas.find { it.id == post.novelaProgramadaId }
+                                                    if (nov != null) onSeleccionarNovela(nov)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = colors.purple)
+                                            ) {
+                                                Text(
+                                                    text = "📖 ¡Ya disponible! Leer ahora",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -551,22 +1255,32 @@ fun BibliotecaScreen(
     novelas: List<Novela>,
     seguimientos: List<SeguimientoRelacion>,
     usuariosQueSigo: List<UsuarioSeguimiento>,
-    onSeleccionarNovela: (Novela) -> Unit
+    onSeleccionarNovela: (Novela) -> Unit,
+    onAbrirPerfilAutor: (String) -> Unit
 ) {
     val colors = LocalReadwoodColors.current
     val context = LocalContext.current
     var tabIndex by remember { mutableIntStateOf(0) }
-    var mostrarOcultas by remember { mutableStateOf(true) }
     var offlineList by remember { mutableStateOf(OfflineStorage.obtenerNovelasOffline(context)) }
+    var mapaUsuarios by remember { mutableStateOf(emptyMap<String, UsuarioPerfil>()) }
+
+    LaunchedEffect(usuariosQueSigo) {
+        if (usuariosQueSigo.isNotEmpty()) {
+            FirestoreService.buscarUsuarios("") { lista ->
+                mapaUsuarios = lista.associateBy { it.id }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.bg)
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Text("Mi Biblioteca", fontFamily = FontFamily.Serif, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
-        Spacer(modifier = Modifier.height(10.dp))
+        Text("Mi Biblioteca", fontFamily = FontFamily.Serif, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
+        Text("Toca el ícono de ojo para mostrar u ocultar de tu perfil público", fontSize = 11.sp, color = colors.textMuted)
+        Spacer(modifier = Modifier.height(8.dp))
 
         TabRow(selectedTabIndex = tabIndex, containerColor = colors.cardBg, contentColor = colors.purple) {
             Tab(selected = tabIndex == 0, onClick = { tabIndex = 0 }, text = { Text("Novelas (${seguimientos.size})") })
@@ -577,25 +1291,25 @@ fun BibliotecaScreen(
             }, text = { Text("Offline (${offlineList.size})") })
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         when (tabIndex) {
             0 -> {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Mostrar novelas que oculté", fontSize = 13.sp, color = colors.textMuted)
-                    Switch(checked = mostrarOcultas, onCheckedChange = { mostrarOcultas = it })
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val visibles = seguimientos.filter { mostrarOcultas || !it.oculta }
-                if (visibles.isEmpty()) {
+                if (seguimientos.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No tienes novelas seguidas visibles.", color = colors.textMuted)
+                        Text("No tienes novelas seguidas.", color = colors.textMuted)
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(visibles, key = { it.id }) { rel ->
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 28.dp)
+                    ) {
+                        items(seguimientos, key = { it.id }) { rel ->
                             val novela = novelas.find { it.id == rel.novelaId }
+                            val portadaBmp = remember(novela?.portadaBase64) {
+                                ImageUtils.base64ToImageBitmap(novela?.portadaBase64 ?: "")
+                            }
+
                             Surface(
                                 color = colors.cardBg,
                                 shape = RoundedCornerShape(10.dp),
@@ -604,31 +1318,50 @@ fun BibliotecaScreen(
                                     .fillMaxWidth()
                                     .clickable { if (novela != null) onSeleccionarNovela(novela) }
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(rel.novelaTitulo, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
-                                            Text("Autor: ${rel.seguidoAutorNombre}", fontSize = 12.sp, color = colors.purple)
-                                            if (rel.oculta) {
-                                                Text("🔒 Oculta para otros usuarios", fontSize = 11.sp, color = colors.textMuted)
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    PortadaConTextoSuperpuesto(
+                                        titulo = rel.novelaTitulo,
+                                        autor = rel.seguidoAutorNombre,
+                                        portadaBmp = portadaBmp,
+                                        colorHex = novela?.portadaColorHex ?: "#5E2D40",
+                                        width = 58.dp,
+                                        height = 84.dp,
+                                        tituloSize = 9.sp,
+                                        autorSize = 7.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(rel.novelaTitulo, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
+                                                Text("Autor: ${rel.seguidoAutorNombre}", fontSize = 12.sp, color = colors.purple)
+                                                Text(
+                                                    text = if (rel.oculta) "Oculta para otros usuarios" else "Visible en tu perfil",
+                                                    fontSize = 11.sp,
+                                                    color = colors.textMuted
+                                                )
+                                            }
+                                            IconButton(onClick = { FirestoreService.alternarOcultarSeguimiento(rel.id, !rel.oculta) }) {
+                                                IconoOjoVisibilidad(
+                                                    oculto = rel.oculta,
+                                                    tint = if (rel.oculta) colors.textMuted else colors.purple
+                                                )
+                                            }
+                                            IconButton(onClick = { FirestoreService.eliminarSeguimiento(rel.id) }) {
+                                                Icon(Icons.Outlined.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
                                             }
                                         }
-                                        IconButton(onClick = { FirestoreService.alternarOcultarSeguimiento(rel.id, !rel.oculta) }) {
-                                            Icon(
-                                                imageVector = if (rel.oculta) Icons.Outlined.Lock else Icons.Outlined.Face,
-                                                contentDescription = "Ocultar novela",
-                                                tint = colors.purple
-                                            )
-                                        }
-                                        IconButton(onClick = { FirestoreService.eliminarSeguimiento(rel.id) }) {
-                                            Icon(Icons.Outlined.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error)
-                                        }
+                                        LinearProgressIndicator(
+                                            progress = { rel.progresoPorcentaje / 100f },
+                                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                            color = colors.purple
+                                        )
                                     }
-                                    LinearProgressIndicator(
-                                        progress = { rel.progresoPorcentaje / 100f },
-                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                                        color = colors.purple
-                                    )
                                 }
                             }
                         }
@@ -641,28 +1374,71 @@ fun BibliotecaScreen(
                         Text("Aún no sigues a otros usuarios.", color = colors.textMuted)
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 28.dp)
+                    ) {
                         items(usuariosQueSigo, key = { it.id }) { segUser ->
+                            val perfilSeguido = mapaUsuarios[segUser.seguidoId]
+                            val fotoSeguido = remember(perfilSeguido?.fotoBase64) {
+                                ImageUtils.base64ToImageBitmap(perfilSeguido?.fotoBase64 ?: "")
+                            }
+
                             Surface(
                                 color = colors.cardBg,
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(0.8.dp, colors.border),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onAbrirPerfilAutor(segUser.seguidoId) }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(segUser.seguidoNombre, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
-                                    TextButton(onClick = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.bg)
+                                            .border(1.dp, colors.purple, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (fotoSeguido != null) {
+                                            Image(bitmap = fotoSeguido, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                        } else {
+                                            Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = colors.purple, modifier = Modifier.size(28.dp))
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(segUser.seguidoNombre, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
+                                        Text(
+                                            text = if (segUser.oculta) "Oculto en tu perfil público" else "Visible en tu perfil público",
+                                            fontSize = 11.sp,
+                                            color = colors.textMuted
+                                        )
+                                    }
+
+                                    IconButton(onClick = {
+                                        FirestoreService.alternarOcultarUsuarioSeguido(segUser.id, !segUser.oculta)
+                                    }) {
+                                        IconoOjoVisibilidad(
+                                            oculto = segUser.oculta,
+                                            tint = if (segUser.oculta) colors.textMuted else colors.purple
+                                        )
+                                    }
+
+                                    IconButton(onClick = {
                                         FirestoreService.seguirODejarDeSeguirUsuario(
                                             seguidor = UsuarioPerfil(id = segUser.seguidorId, usuario = segUser.seguidorNombre),
                                             objetivo = UsuarioPerfil(id = segUser.seguidoId, usuario = segUser.seguidoNombre),
                                             yaLoSigue = true
                                         )
                                     }) {
-                                        Text("Dejar de seguir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Dejar de seguir", tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -676,8 +1452,14 @@ fun BibliotecaScreen(
                         Text("No hay novelas guardadas para lectura interna.", color = colors.textMuted)
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(bottom = 28.dp)
+                    ) {
                         items(offlineList, key = { it.id }) { novOff ->
+                            val portadaOff = remember(novOff.portadaBase64) {
+                                ImageUtils.base64ToImageBitmap(novOff.portadaBase64)
+                            }
                             Surface(
                                 color = colors.cardBg,
                                 shape = RoundedCornerShape(10.dp),
@@ -686,7 +1468,18 @@ fun BibliotecaScreen(
                                     .fillMaxWidth()
                                     .clickable { onSeleccionarNovela(novOff) }
                             ) {
-                                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    PortadaConTextoSuperpuesto(
+                                        titulo = novOff.titulo,
+                                        autor = novOff.autor,
+                                        portadaBmp = portadaOff,
+                                        colorHex = novOff.portadaColorHex,
+                                        width = 52.dp,
+                                        height = 76.dp,
+                                        tituloSize = 8.sp,
+                                        autorSize = 7.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(novOff.titulo, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textDark)
                                         Text("${novOff.capitulos.size} capítulo(s) guardados en la app", fontSize = 12.sp, color = colors.purple)
@@ -712,84 +1505,182 @@ fun DetalleNovelaScreen(
     usuario: UsuarioPerfil,
     novela: Novela,
     seguimientos: List<SeguimientoRelacion>,
+    novelas: List<Novela> = emptyList(),
+    onSeleccionarNovela: (Novela) -> Unit = {},
     onVolver: () -> Unit,
-    onLeerCapitulo: (Int) -> Unit
+    onLeerCapitulo: (Int) -> Unit,
+    onAbrirPerfilAutor: (String) -> Unit,
+    onAgregarCapituloANovela: (Novela) -> Unit
 ) {
+    BackHandler { onVolver() }
+
     val colors = LocalReadwoodColors.current
     val context = LocalContext.current
     val relacion = seguimientos.find { it.novelaId == novela.id }
     val esMiPropiaNovela = novela.autorId == usuario.id
     var mensajeBanner by remember { mutableStateOf("") }
-    var mostrarPerfilAutorYReporte by remember { mutableStateOf(false) }
-    var motivoReporteUsuario by remember { mutableStateOf("") }
 
-    val portadaBmp = remember(novela.portadaBase64) { ImageUtils.base64ToImageBitmap(novela.portadaBase64) }
+    // Estados para reportar la novela con motivos seleccionables + "Otro motivo"
+    var mostrarDialogoReporteNovela by remember { mutableStateOf(false) }
+    val motivosPredefinidos = listOf(
+        "Contenido inapropiado o explícito",
+        "Plagio o robo de obra",
+        "Discurso de odio o acoso",
+        "Spam o publicidad engañosa",
+        "Información falsa o engañosa",
+        "Otro motivo"
+    )
+    var motivoSeleccionado by remember { mutableStateOf(motivosPredefinidos.first()) }
+    var otroMotivoTexto by remember { mutableStateOf("") }
 
-    if (mostrarPerfilAutorYReporte) {
+    // Recomendaciones al final de la novela:
+    // Mismo autor, o mínimo 1 etiqueta en común, o afinidad con los gustos del usuario
+    val novelasRecomendadasDetalle = remember(novelas, novela.id, seguimientos) {
+        val tagsNovelaActual = novela.etiquetas.map { it.lowercase() }.toSet()
+        val idsLeidas = seguimientos.map { it.novelaId }.toSet()
+        val novelasQueLeeUsuario = novelas.filter { it.id in idsLeidas }
+        val generosUsuario = novelasQueLeeUsuario.map { it.categoria.lowercase() }.toSet()
+        val tagsUsuario = novelasQueLeeUsuario.flatMap { n -> n.etiquetas.map { it.lowercase() } }.toSet()
+        val autoresUsuario = novelasQueLeeUsuario.map { it.autorId }.toSet()
+
+        novelas
+            .filter { it.esPublicada && it.id != novela.id }
+            .map { cand ->
+                val esMismoAutor = cand.autorId == novela.autorId
+                val tagsCand = cand.etiquetas.map { it.lowercase() }
+                val tieneEtiquetaComun = tagsCand.any { it in tagsNovelaActual }
+                val coincideConGustosUsuario =
+                    cand.categoria.lowercase() in generosUsuario ||
+                            cand.autorId in autoresUsuario ||
+                            tagsCand.any { it in tagsUsuario }
+
+                var puntaje = 0
+                if (esMismoAutor) puntaje += 5
+                if (tieneEtiquetaComun) puntaje += 4
+                if (coincideConGustosUsuario) puntaje += 2
+
+                val motivo = when {
+                    esMismoAutor -> "Mismo autor"
+                    tieneEtiquetaComun -> "Etiquetas en común"
+                    else -> cand.categoria
+                }
+                Triple(cand, puntaje, motivo)
+            }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(8)
+    }
+
+    if (mostrarDialogoReporteNovela) {
         AlertDialog(
-            onDismissRequest = { mostrarPerfilAutorYReporte = false },
+            onDismissRequest = { mostrarDialogoReporteNovela = false },
             containerColor = colors.cardBg,
             title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Autor: ${novela.autor}", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = colors.purple)
-                    if (!esMiPropiaNovela) {
-                        IconButton(onClick = {
-                            FirestoreService.enviarReporte(
-                                reportante = usuario,
-                                tipoObjetivo = "USUARIO",
-                                objetivoId = novela.autorId,
-                                objetivoNombre = novela.autor,
-                                motivo = motivoReporteUsuario.ifBlank { "Reporte desde perfil de autor" }
-                            ) {
-                                motivoReporteUsuario = ""
-                                mostrarPerfilAutorYReporte = false
-                                mensajeBanner = "Reporte enviado sobre el usuario ${novela.autor}."
-                            }
-                        }) {
-                            IconoBocinaReporte(tint = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
+                Text(
+                    text = "Reportar \"${novela.titulo}\"",
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textDark
+                )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Obra: ${novela.titulo}", fontSize = 13.sp, color = colors.textDark)
-                    if (!esMiPropiaNovela) {
-                        Text(
-                            "Si este usuario infringe las normas, escribe un motivo opcional y pulsa el ícono de bocina arriba a la derecha para reportarlo:",
-                            fontSize = 12.sp,
-                            color = colors.textMuted
-                        )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Selecciona el motivo del reporte:",
+                        fontSize = 13.sp,
+                        color = colors.textMuted
+                    )
+                    motivosPredefinidos.forEach { opcion ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { motivoSeleccionado = opcion }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            RadioButton(
+                                selected = motivoSeleccionado == opcion,
+                                onClick = { motivoSeleccionado = opcion },
+                                colors = RadioButtonDefaults.colors(selectedColor = colors.purple)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = opcion,
+                                fontSize = 13.sp,
+                                color = colors.textDark
+                            )
+                        }
+                    }
+
+                    if (motivoSeleccionado == "Otro motivo") {
+                        Spacer(modifier = Modifier.height(4.dp))
                         OutlinedTextField(
-                            value = motivoReporteUsuario,
-                            onValueChange = { motivoReporteUsuario = it },
-                            placeholder = { Text("Motivo del reporte (opcional)...", fontSize = 12.sp) },
-                            singleLine = true
+                            value = otroMotivoTexto,
+                            onValueChange = { otroMotivoTexto = it },
+                            placeholder = { Text("Escribe aquí el motivo...", fontSize = 13.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 3
                         )
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { mostrarPerfilAutorYReporte = false }) {
-                    Text("Cerrar", color = colors.purple)
+                Button(
+                    onClick = {
+                        val motivoFinal = if (motivoSeleccionado == "Otro motivo") {
+                            otroMotivoTexto.trim().ifBlank { "Otro motivo no especificado" }
+                        } else {
+                            motivoSeleccionado
+                        }
+                        FirestoreService.enviarReporte(
+                            reportante = usuario,
+                            tipoObjetivo = "NOVELA",
+                            objetivoId = novela.id,
+                            objetivoNombre = novela.titulo,
+                            motivo = motivoFinal
+                        ) {
+                            mensajeBanner = "Reporte enviado correctamente."
+                        }
+                        otroMotivoTexto = ""
+                        motivoSeleccionado = motivosPredefinidos.first()
+                        mostrarDialogoReporteNovela = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Enviar reporte", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { mostrarDialogoReporteNovela = false }) {
+                    Text("Cancelar", color = colors.purple)
                 }
             }
         )
     }
 
+    val portadaBmp = remember(novela.portadaBase64) { ImageUtils.base64ToImageBitmap(novela.portadaBase64) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.bg)
-            .padding(16.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        TextButton(onClick = onVolver) {
-            Text("← Volver", color = colors.purple, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(
+                onClick = onVolver,
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+            ) {
+                Text("← Volver", color = colors.purple, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -807,26 +1698,13 @@ fun DetalleNovelaScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text(novela.categoria.uppercase(), fontSize = 11.sp, color = colors.purple, fontWeight = FontWeight.Bold)
                 Text(novela.titulo, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = colors.textDark)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Por ${novela.autor}",
-                        fontSize = 13.sp,
-                        color = colors.purple,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { mostrarPerfilAutorYReporte = true }
-                    )
-                    if (!esMiPropiaNovela) {
-                        IconButton(
-                            onClick = { mostrarPerfilAutorYReporte = true },
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            IconoBocinaReporte(
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = "Por ${novela.autor} (Ver perfil)",
+                    fontSize = 13.sp,
+                    color = colors.purple,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onAbrirPerfilAutor(novela.autorId) }
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "♥ ${novela.corazones}  •  👍 ${novela.meGusta}  •  👎 ${novela.noMeGusta}\n👁 ${novela.vistas} Vistas  •  💬 ${novela.totalComentarios} Comentarios",
@@ -838,22 +1716,51 @@ fun DetalleNovelaScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        Text(novela.sinopsis, fontSize = 14.sp, color = colors.textDark)
 
-        if (novela.etiquetas.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(novela.etiquetas) { tag ->
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colors.cardBg,
-                        border = BorderStroke(0.8.dp, colors.border)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(novela.sinopsis, fontSize = 14.sp, color = colors.textDark)
+
+                if (novela.etiquetas.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(novela.etiquetas) { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.cardBg,
+                                border = BorderStroke(0.8.dp, colors.border)
+                            ) {
+                                Text(
+                                    text = "#$tag",
+                                    fontSize = 11.sp,
+                                    color = colors.textMuted,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!esMiPropiaNovela) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = colors.cardBg,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f)),
+                    modifier = Modifier.clickable { mostrarDialogoReporteNovela = true }
+                ) {
+                    Box(
+                        modifier = Modifier.padding(10.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "#$tag",
-                            fontSize = 11.sp,
-                            color = colors.textMuted,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        IconoBocinaReporte(
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -880,7 +1787,7 @@ fun DetalleNovelaScreen(
                     Text(
                         text = when {
                             relacion == null -> "+ Seguir novela"
-                            relacion.oculta -> "🔒 Oculta (Mostrar)"
+                            relacion.oculta -> "Oculta (Mostrar)"
                             else -> "✓ Siguiendo (Ocultar)"
                         },
                         fontSize = 12.sp,
@@ -941,6 +1848,71 @@ fun DetalleNovelaScreen(
                 }
             }
         }
+
+        if (novelasRecomendadasDetalle.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(22.dp))
+            HorizontalDivider(color = colors.border)
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = "También te puede gustar",
+                fontFamily = FontFamily.Serif,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textDark
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(novelasRecomendadasDetalle, key = { "det_rec_${it.first.id}" }) { (novRec, _, motivo) ->
+                    val portRec = remember(novRec.portadaBase64) {
+                        ImageUtils.base64ToImageBitmap(novRec.portadaBase64)
+                    }
+                    Surface(
+                        color = colors.cardBg,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(0.8.dp, colors.border),
+                        modifier = Modifier
+                            .width(118.dp)
+                            .clickable { onSeleccionarNovela(novRec) }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            PortadaConTextoSuperpuesto(
+                                titulo = novRec.titulo,
+                                autor = novRec.autor,
+                                portadaBmp = portRec,
+                                colorHex = novRec.portadaColorHex,
+                                width = 96.dp,
+                                height = 136.dp,
+                                tituloSize = 11.sp,
+                                autorSize = 8.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = novRec.titulo,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = colors.textDark,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = motivo,
+                                fontSize = 10.sp,
+                                color = colors.purple,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
     }
 }
 
@@ -951,8 +1923,13 @@ fun LecturaScreen(
     indiceCapituloInicial: Int = 0,
     seguimientos: List<SeguimientoRelacion>,
     modoOscuroApp: Boolean = false,
-    onVolver: () -> Unit
+    novelas: List<Novela> = emptyList(),
+    onSeleccionarNovela: (Novela) -> Unit = {},
+    onVolver: () -> Unit,
+    onAbrirPerfilAutor: (String) -> Unit
 ) {
+    BackHandler { onVolver() }
+
     val scrollState = rememberScrollState()
     var indiceCap by remember { mutableIntStateOf(indiceCapituloInicial.coerceIn(0, (novela.capitulos.size - 1).coerceAtLeast(0))) }
 
@@ -962,14 +1939,22 @@ fun LecturaScreen(
     var tamanoTexto by remember { mutableFloatStateOf(18f) }
 
     val esMiPropiaNovela = novela.autorId == usuario.id
-    var vistaRegistrada by remember(novela.id, indiceCap) { mutableStateOf(false) }
+    var vistaRegistradaLocal by remember(novela.id, indiceCap) { mutableStateOf(false) }
 
     val capituloActual = novela.capitulos.getOrNull(indiceCap)
-    var comentarios by remember { mutableStateOf<List<ComentarioItem>>(emptyList()) }
+    var comentarios by remember { mutableStateOf(emptyList<ComentarioItem>()) }
     var nuevoComentario by remember { mutableStateOf("") }
     var comentarioAReportar by remember { mutableStateOf<ComentarioItem?>(null) }
     var motivoReporteComentario by remember { mutableStateOf("") }
-    var avisoReporte by remember { mutableStateOf("") }
+    var avisoReporte by remember(indiceCap) { mutableStateOf("") }
+
+    val yaDioCorazon = capituloActual?.usuariosCorazon?.contains(usuario.id) == true
+    val yaDioLike = capituloActual?.usuariosLike?.contains(usuario.id) == true
+    val yaDioDislike = capituloActual?.usuariosDislike?.contains(usuario.id) == true
+
+    LaunchedEffect(indiceCap) {
+        scrollState.scrollTo(0)
+    }
 
     DisposableEffect(novela.id, capituloActual?.id) {
         val reg = if (capituloActual != null) {
@@ -983,9 +1968,9 @@ fun LecturaScreen(
     } else 100
 
     LaunchedEffect(porcentajeLectura, indiceCap) {
-        if (porcentajeLectura >= 100 && !vistaRegistrada && capituloActual != null && !esMiPropiaNovela) {
-            vistaRegistrada = true
-            FirestoreService.incrementarVistaNovela(novela, usuario.id)
+        if (porcentajeLectura >= 100 && !vistaRegistradaLocal && capituloActual != null && !esMiPropiaNovela) {
+            vistaRegistradaLocal = true
+            FirestoreService.incrementarVistaUnicaCapitulo(novela, capituloActual.id, usuario.id)
         }
         val rel = seguimientos.find { it.novelaId == novela.id }
         if (rel != null && porcentajeLectura > 0) {
@@ -1004,7 +1989,7 @@ fun LecturaScreen(
                     OutlinedTextField(
                         value = motivoReporteComentario,
                         onValueChange = { motivoReporteComentario = it },
-                        placeholder = { Text("Motivo del reporte (ej. insultos, spam)...") },
+                        placeholder = { Text("Motivo del reporte...") },
                         singleLine = true
                     )
                 }
@@ -1032,9 +2017,35 @@ fun LecturaScreen(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(temaActual.fondo)) {
+    var arrastreHorizontal by remember { mutableFloatStateOf(0f) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(temaActual.fondo)
+            .navigationBarsPadding()
+            .pointerInput(indiceCap, novela.capitulos.size) {
+                detectHorizontalDragGestures(
+                    onDragStart = { arrastreHorizontal = 0f },
+                    onHorizontalDrag = { _, dragAmount ->
+                        arrastreHorizontal += dragAmount
+                    },
+                    onDragEnd = {
+                        if (arrastreHorizontal < -130f && indiceCap < novela.capitulos.lastIndex) {
+                            indiceCap++
+                        } else if (arrastreHorizontal > 130f && indiceCap > 0) {
+                            indiceCap--
+                        }
+                        arrastreHorizontal = 0f
+                    }
+                )
+            }
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1070,10 +2081,13 @@ fun LecturaScreen(
         } else {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp)
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
                     .verticalScroll(scrollState)
             ) {
+                Spacer(modifier = Modifier.height(16.dp))
+
                 EncabezadoOrnamental(
                     genero = novela.categoria,
                     tituloNovela = novela.titulo,
@@ -1115,6 +2129,89 @@ fun LecturaScreen(
                     }
                 }
 
+                if (indiceCap == novela.capitulos.lastIndex) {
+                    val recomendacionesFin = remember(novelas, novela.id, seguimientos) {
+                        val tagsActuales = novela.etiquetas.map { it.lowercase() }.toSet()
+                        val idsLeidas = seguimientos.map { it.novelaId }.toSet()
+                        val novelasUser = novelas.filter { it.id in idsLeidas }
+                        val generosUser = novelasUser.map { it.categoria.lowercase() }.toSet()
+                        val tagsUser = novelasUser.flatMap { n -> n.etiquetas.map { it.lowercase() } }.toSet()
+
+                        novelas
+                            .filter { it.esPublicada && it.id != novela.id }
+                            .map { cand ->
+                                var pts = 0
+                                if (cand.autorId == novela.autorId) pts += 5
+                                val tagsCand = cand.etiquetas.map { it.lowercase() }
+                                if (tagsCand.any { it in tagsActuales }) pts += 4
+                                if (cand.categoria.lowercase() in generosUser || tagsCand.any { it in tagsUser }) pts += 2
+                                cand to pts
+                            }
+                            .filter { it.second > 0 }
+                            .sortedByDescending { it.second }
+                            .take(6)
+                            .map { it.first }
+                    }
+
+                    if (recomendacionesFin.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Text(
+                            text = "Has llegado al último capítulo • Recomendadas para ti",
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = temaActual.acento
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(recomendacionesFin, key = { "fin_${it.id}" }) { novRec ->
+                                val portRec = remember(novRec.portadaBase64) {
+                                    ImageUtils.base64ToImageBitmap(novRec.portadaBase64)
+                                }
+                                Surface(
+                                    color = temaActual.texto.copy(alpha = 0.07f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(0.8.dp, temaActual.acento.copy(alpha = 0.4f)),
+                                    modifier = Modifier
+                                        .width(115.dp)
+                                        .clickable { onSeleccionarNovela(novRec) }
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        PortadaConTextoSuperpuesto(
+                                            titulo = novRec.titulo,
+                                            autor = novRec.autor,
+                                            portadaBmp = portRec,
+                                            colorHex = novRec.portadaColorHex,
+                                            width = 92.dp,
+                                            height = 130.dp,
+                                            tituloSize = 10.sp,
+                                            autorSize = 8.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = novRec.titulo,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = temaActual.texto,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (novRec.autorId == novela.autorId) "Mismo autor" else novRec.categoria,
+                                            fontSize = 9.sp,
+                                            color = temaActual.acento,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
@@ -1131,25 +2228,68 @@ fun LecturaScreen(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
-                            onClick = { FirestoreService.registrarReaccionCapitulo(novela, capituloActual.id, "CORAZON") },
+                            onClick = {
+                                FirestoreService.registrarReaccionCapitulo(
+                                    novela = novela,
+                                    capituloId = capituloActual.id,
+                                    usuarioId = usuario.id,
+                                    tipo = "CORAZON"
+                                ) { aviso -> avisoReporte = aviso }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (yaDioCorazon) Color(0xFFD81B60).copy(alpha = 0.20f) else Color.Transparent
+                            ),
+                            border = BorderStroke(if (yaDioCorazon) 1.5.dp else 1.dp, Color(0xFFD81B60)),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Outlined.FavoriteBorder, contentDescription = "Corazón", tint = Color(0xFFD81B60), modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (yaDioCorazon) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = "Me encanta",
+                                tint = Color(0xFFD81B60),
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("${capituloActual.corazones}", color = Color(0xFFD81B60), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
-                            onClick = { FirestoreService.registrarReaccionCapitulo(novela, capituloActual.id, "LIKE") },
+                            onClick = {
+                                FirestoreService.registrarReaccionCapitulo(
+                                    novela = novela,
+                                    capituloId = capituloActual.id,
+                                    usuarioId = usuario.id,
+                                    tipo = "LIKE"
+                                ) { aviso -> avisoReporte = aviso }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (yaDioLike) Color(0xFF1976D2).copy(alpha = 0.20f) else Color.Transparent
+                            ),
+                            border = BorderStroke(if (yaDioLike) 1.5.dp else 1.dp, Color(0xFF1976D2)),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Outlined.ThumbUp, contentDescription = "Like", tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = if (yaDioLike) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                contentDescription = "Like",
+                                tint = Color(0xFF1976D2),
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("${capituloActual.meGusta}", color = Color(0xFF1976D2), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
-                            onClick = { FirestoreService.registrarReaccionCapitulo(novela, capituloActual.id, "DISLIKE") },
+                            onClick = {
+                                FirestoreService.registrarReaccionCapitulo(
+                                    novela = novela,
+                                    capituloId = capituloActual.id,
+                                    usuarioId = usuario.id,
+                                    tipo = "DISLIKE"
+                                ) { aviso -> avisoReporte = aviso }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (yaDioDislike) Color(0xFFD32F2F).copy(alpha = 0.20f) else Color.Transparent
+                            ),
+                            border = BorderStroke(if (yaDioDislike) 1.5.dp else 1.dp, Color(0xFFD32F2F)),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text("👎 ${capituloActual.noMeGusta}", color = Color(0xFFD32F2F), fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -1158,6 +2298,7 @@ fun LecturaScreen(
                 }
 
                 if (avisoReporte.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(avisoReporte, fontSize = 12.sp, color = temaActual.acento, fontWeight = FontWeight.SemiBold)
                 }
 
@@ -1189,6 +2330,11 @@ fun LecturaScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
                 comentarios.forEach { com ->
+                    val fotoComentario = remember(com.usuarioFotoBase64) {
+                        ImageUtils.base64ToImageBitmap(com.usuarioFotoBase64)
+                    }
+                    val esAutorDeLaObra = com.usuarioId == novela.autorId
+
                     Card(
                         colors = CardDefaults.cardColors(containerColor = temaActual.texto.copy(alpha = 0.08f)),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -1197,8 +2343,32 @@ fun LecturaScreen(
                             modifier = Modifier.padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(temaActual.fondo)
+                                    .border(1.dp, temaActual.acento, CircleShape)
+                                    .clickable { onAbrirPerfilAutor(com.usuarioId) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (fotoComentario != null) {
+                                    Image(bitmap = fotoComentario, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                } else {
+                                    Icon(Icons.Outlined.AccountCircle, contentDescription = null, tint = temaActual.acento, modifier = Modifier.size(24.dp))
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(com.usuarioNombre, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = temaActual.acento)
+                                Text(
+                                    text = if (esAutorDeLaObra) "${com.usuarioNombre} : Autor" else com.usuarioNombre,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = temaActual.acento,
+                                    modifier = Modifier.clickable { onAbrirPerfilAutor(com.usuarioId) }
+                                )
                                 Text(com.texto, fontSize = 14.sp, color = temaActual.texto)
                             }
                             if (com.usuarioId != usuario.id) {
@@ -1209,6 +2379,8 @@ fun LecturaScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(48.dp))
             }
         }
     }
